@@ -1015,6 +1015,99 @@ def _sam_to_item(o: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# ---------- Grants.gov opportunity search ----------
+
+class GrantsSearchIn(BaseModel):
+    keyword: Optional[str] = None
+    agencies: List[str] = []
+    eligibilities: List[str] = []
+    cfdas: List[str] = []
+    limit: int = 50
+
+
+@app.post("/api/grants-search")
+def grants_search(body: GrantsSearchIn) -> Dict[str, Any]:
+    """Hit api.grants.gov/v1/api/search2. No API key required."""
+    payload: Dict[str, Any] = {
+        "rows": min(max(body.limit, 1), 100),
+        "keyword": (body.keyword or "").strip(),
+        # forecasted = upcoming, posted = currently open
+        "oppStatuses": "forecasted|posted",
+    }
+    if body.agencies:
+        payload["agencies"] = "|".join(body.agencies)
+    if body.eligibilities:
+        payload["eligibilities"] = "|".join(body.eligibilities)
+    if body.cfdas:
+        payload["cfda"] = "|".join(body.cfdas)
+
+    req = urllib.request.Request(
+        "https://api.grants.gov/v1/api/search2",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "AutoBid/0.2 (+https://autobid.liv8.co)",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read().decode("utf-8", errors="ignore")
+        data = json.loads(raw)
+    except urllib.error.HTTPError as e:
+        msg = ""
+        try:
+            msg = e.read().decode("utf-8", errors="ignore")[:400]
+        except Exception:
+            pass
+        return {"items": [], "source": "grants", "error": f"Grants {e.code}: {msg or e.reason}"}
+    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        return {"items": [], "source": "grants", "error": f"{type(e).__name__}: {e}"}
+
+    inner = data.get("data") or {}
+    hits = inner.get("oppHits") or []
+    items: List[Dict[str, Any]] = []
+    for h in hits:
+        items.append(_grant_to_item(h))
+    return {
+        "items": items,
+        "total_records": inner.get("hitCount", len(items)),
+        "source": "grants",
+    }
+
+
+def _grant_to_item(g: Dict[str, Any]) -> Dict[str, Any]:
+    deadline = g.get("closeDate")
+    if isinstance(deadline, str):
+        # grants.gov returns "MM/DD/YYYY"; normalize to ISO.
+        m = re.match(r"^(\d{2})/(\d{2})/(\d{4})$", deadline.strip())
+        if m:
+            deadline = f"{m.group(3)}-{m.group(1)}-{m.group(2)}"
+
+    cfdas = g.get("alnist") or g.get("cfdaList") or []
+    cfda_code = None
+    if isinstance(cfdas, list) and cfdas:
+        cfda_code = cfdas[0] if isinstance(cfdas[0], str) else cfdas[0].get("code")
+
+    opp_id = g.get("id") or g.get("number")
+    return {
+        "id": str(opp_id) if opp_id else None,
+        "title": g.get("title") or "(no title)",
+        "agency": g.get("agencyName") or g.get("agencyCode") or "",
+        "naics": None,  # grants don't use NAICS
+        "cfda": cfda_code,
+        "set_aside": None,
+        "value": None,  # search2 doesn't include award amounts; details endpoint does
+        "response_deadline": deadline,
+        "url": f"https://grants.gov/search-results-detail/{opp_id}" if opp_id else None,
+        "type": "Grant",
+        "posted_date": g.get("openDate"),
+        "description": g.get("docType"),
+        "raw_source": "grants.gov",
+    }
+
+
 def _try_scrape_anthropic(url: str, text: str) -> Optional[Dict[str, Any]]:
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key or not text:

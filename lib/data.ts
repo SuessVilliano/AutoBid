@@ -63,6 +63,18 @@ export async function signInWithMagicLink(email: string): Promise<{ ok: boolean;
   return { ok: true };
 }
 
+export async function signInWithGoogle(): Promise<{ ok: boolean; error?: string }> {
+  const sb = getBrowserSupabase();
+  if (!sb) return { ok: false, error: "Supabase not configured" };
+  const redirectTo = `${window.location.origin}/auth/callback?next=/dashboard`;
+  const { error } = await sb.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo },
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
 export async function signInDemo(email: string, name?: string): Promise<AppUser> {
   if (typeof window === "undefined") throw new Error("no window");
   const users = JSON.parse(window.localStorage.getItem(LS_USERS) ?? "[]") as DemoUser[];

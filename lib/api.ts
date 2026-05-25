@@ -108,4 +108,26 @@ export const api = {
       error?: string;
       naics_filter?: string[];
     }>("/sam-search", { method: "POST", body: JSON.stringify(body) }),
+
+  grantsSearch: (body: { keyword?: string; agencies?: string[]; cfdas?: string[]; eligibilities?: string[]; limit?: number }) =>
+    req<{
+      items: {
+        id: string;
+        title: string;
+        agency: string;
+        naics: string | null;
+        cfda: string | null;
+        set_aside: string | null;
+        value: number | null;
+        response_deadline: string | null;
+        url: string | null;
+        type: string;
+        posted_date: string | null;
+        description: string | null;
+        raw_source: string;
+      }[];
+      total_records?: number;
+      source: "grants";
+      error?: string;
+    }>("/grants-search", { method: "POST", body: JSON.stringify(body) }),
 };
