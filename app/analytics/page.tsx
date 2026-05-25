@@ -41,8 +41,26 @@ export default function AnalyticsPage() {
       </>
     );
 
-  const maxTrend = Math.max(...data.trends.map((t) => t.total));
-  const maxNaics = Math.max(...data.top_naics.map((n) => n.count));
+  const maxTrend = Math.max(1, ...data.trends.map((t) => t.total));
+  const maxNaics = Math.max(1, ...data.top_naics.map((n) => n.count));
+  const isEmpty = data.headline.total_opportunities === 0 && data.trends.length === 0;
+
+  if (isEmpty) {
+    return (
+      <>
+        <PageHeader eyebrow="Capture desk" title="Analytics" />
+        <div className="p-8">
+          <Card className="p-8 max-w-2xl">
+            <h3 className="font-display text-lg mb-2">Nothing to analyse yet.</h3>
+            <p className="text-sm text-ink-soft mb-4">
+              Charts and trends populate once you've qualified opportunities and moved
+              them through your pipeline. Start at the <a href="/feed" className="text-brass hover:text-ink">Feed</a>.
+            </p>
+          </Card>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

@@ -281,26 +281,14 @@ STAGE_LABELS = {
 
 @app.get("/api/pipeline")
 def pipeline(stage: Optional[str] = None, q: Optional[str] = None) -> Dict[str, Any]:
-    items = list(DEMO_OPPS)
-    if stage and stage != "all":
-        items = [o for o in items if o["stage"] == stage]
-    if q:
-        ql = q.lower()
-        items = [o for o in items if ql in o["title"].lower() or ql in (o["agency"] or "").lower()]
+    # Pipeline is empty until the user pulls opportunities from the Feed into
+    # workspaces. Tracking workspace state per-user is a follow-up build.
+    _ = stage, q
     return {
-        "items": items,
+        "items": [],
         "stage_labels": STAGE_LABELS,
-        "counts": {s: sum(1 for o in DEMO_OPPS if o["stage"] == s) for s in STAGE_LABELS},
-        "totals": {
-            "value": sum(o["value"] or 0 for o in items),
-            "qualified": sum(1 for o in items if o["stage"] == "qualified"),
-            "submitted": sum(1 for o in items if o["stage"] == "submitted"),
-            "due_this_week": sum(
-                1 for o in items
-                if o["response_deadline"]
-                and 0 <= (date.fromisoformat(o["response_deadline"]) - date.today()).days <= 7
-            ),
-        },
+        "counts": {s: 0 for s in STAGE_LABELS},
+        "totals": {"value": 0, "qualified": 0, "submitted": 0, "due_this_week": 0},
     }
 
 
@@ -371,13 +359,15 @@ AGENTS = [
 
 @app.get("/api/agents")
 def list_agents() -> Dict[str, Any]:
+    # Agent definitions are real product features. Counts/status will become
+    # real when the worker queue lands; until then report honest zeros.
+    agents = [
+        {**a, "status": "idle", "tasks_completed": 0, "last_active": "—"}
+        for a in AGENTS
+    ]
     return {
-        "agents": AGENTS,
-        "performance": {
-            "total_tasks": sum(a["tasks_completed"] for a in AGENTS),
-            "active": sum(1 for a in AGENTS if a["status"] == "active"),
-            "processing": sum(1 for a in AGENTS if a["status"] == "processing"),
-        },
+        "agents": agents,
+        "performance": {"total_tasks": 0, "active": 0, "processing": 0},
     }
 
 
@@ -387,51 +377,17 @@ def list_agents() -> Dict[str, Any]:
 def analytics() -> Dict[str, Any]:
     return {
         "headline": {
-            "total_opportunities": 47,
-            "qualification_rate": 52.3,
-            "win_rate": 23.5,
-            "total_pipeline_value": 2_500_000,
-            "deltas": {
-                "total_opportunities": "+18%",
-                "qualification_rate": "+5.2%",
-                "win_rate": "-2.1%",
-                "total_pipeline_value": "+32%",
-            },
+            "total_opportunities": 0,
+            "qualification_rate": 0.0,
+            "win_rate": 0.0,
+            "total_pipeline_value": 0,
+            "deltas": {},
         },
-        "trends": [
-            {"week": "Week 1", "total": 8, "qualified": 4, "submitted": 2},
-            {"week": "Week 2", "total": 12, "qualified": 7, "submitted": 3},
-            {"week": "Week 3", "total": 15, "qualified": 8, "submitted": 5},
-            {"week": "Week 4", "total": 12, "qualified": 6, "submitted": 4},
-        ],
-        "status_distribution": [
-            {"label": "New", "count": 8, "pct": 17.0, "tone": "ink"},
-            {"label": "Enriched", "count": 6, "pct": 12.8, "tone": "brass"},
-            {"label": "Qualified", "count": 12, "pct": 25.5, "tone": "good"},
-            {"label": "Proposal Generated", "count": 8, "pct": 17.0, "tone": "brass"},
-            {"label": "Submitted", "count": 5, "pct": 10.6, "tone": "warn"},
-            {"label": "Not a Fit", "count": 8, "pct": 17.0, "tone": "bad"},
-        ],
-        "by_agency": [
-            {"name": "Department of Defense", "count": 12, "value": 850_000},
-            {"name": "GSA", "count": 8, "value": 420_000},
-            {"name": "Department of Commerce", "count": 6, "value": 380_000},
-            {"name": "EPA", "count": 5, "value": 290_000},
-            {"name": "Other", "count": 16, "value": 510_000},
-        ],
-        "top_naics": [
-            {"code": "541519", "label": "Other Computer Related Services", "count": 15},
-            {"code": "541511", "label": "Custom Computer Programming", "count": 12},
-            {"code": "541611", "label": "Management Consulting", "count": 8},
-            {"code": "541613", "label": "Marketing Consulting", "count": 6},
-            {"code": "518210", "label": "Data Processing Services", "count": 6},
-        ],
-        "agent_performance": [
-            {"name": "Deep-Dive Data Scraper", "tasks": 47, "avg_time_min": 12},
-            {"name": "Qualification Analyst", "tasks": 23, "avg_time_min": 8},
-            {"name": "Grant & Proposal Writer", "tasks": 15, "avg_time_min": 45},
-            {"name": "Submission Coordinator", "tasks": 31, "avg_time_min": 15},
-        ],
+        "trends": [],
+        "status_distribution": [],
+        "by_agency": [],
+        "top_naics": [],
+        "agent_performance": [],
     }
 
 
@@ -439,55 +395,35 @@ def analytics() -> Dict[str, Any]:
 
 @app.get("/api/system/health")
 def system_health() -> Dict[str, Any]:
+    """Reports real-ish config status based on which integrations have keys
+    set. No fabricated uptime / error history."""
+    def _comp(name: str, ok: bool, missing_hint: str) -> Dict[str, str]:
+        return {
+            "name": name,
+            "status": "healthy" if ok else "warning",
+            "detail": "configured" if ok else missing_hint,
+        }
+
+    sam_ok = bool(os.environ.get("SAM_GOV_API_KEY") or os.environ.get("SAM_API_KEY"))
+    anth_ok = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    supa_ok = bool(os.environ.get("NEXT_PUBLIC_SUPABASE_URL")) and bool(
+        os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+    )
+
     return {
-        "updated_at": _iso(0) + "T08:00:31Z",
+        "updated_at": _iso(0),
         "metrics": [
-            {"label": "System Uptime", "value": "99.8%", "target": "99.5%", "tone": "good"},
-            {"label": "Processing Success Rate", "value": "94.2%", "target": "95%", "tone": "warn"},
-            {"label": "Website Extraction Success", "value": "96.8%", "target": "95%", "tone": "good"},
-            {"label": "AI Qualification Accuracy", "value": "91.5%", "target": "90%", "tone": "good"},
-            {"label": "Proposal Generation Rate", "value": "88.3%", "target": "85%", "tone": "good"},
-            {"label": "Average Processing Time", "value": "4.2 min", "target": "5 min", "tone": "good"},
-            {"label": "Active Errors", "value": "3", "target": "0", "tone": "warn"},
-            {"label": "Queue Backlog", "value": "0", "target": "0", "tone": "good"},
+            {"label": "Configured integrations",
+             "value": f"{int(sam_ok) + int(anth_ok) + int(supa_ok)}/3",
+             "target": "3/3",
+             "tone": "good" if (sam_ok and anth_ok and supa_ok) else "warn"},
         ],
         "components": [
-            {"name": "SAM.gov Integration", "status": "healthy"},
-            {"name": "Grants.gov Integration", "status": "healthy"},
-            {"name": "Postgres / Supabase", "status": "healthy"},
-            {"name": "LLM Provider (Anthropic)", "status": "warning"},
-            {"name": "Embedding Provider (OpenAI)", "status": "healthy"},
-            {"name": "Celery Worker / Beat", "status": "healthy"},
+            _comp("SAM.gov", sam_ok, "set SAM_GOV_API_KEY in Vercel"),
+            _comp("Supabase (auth + DB)", supa_ok, "set NEXT_PUBLIC_SUPABASE_URL + _ANON_KEY"),
+            _comp("LLM provider (Anthropic)", anth_ok, "set ANTHROPIC_API_KEY for live AI"),
         ],
-        "recent_errors": [
-            {
-                "title": "Website Extraction Failed",
-                "context": "AI Platform Development Contract",
-                "detail": "Connection timeout after 30 seconds",
-                "severity": "medium",
-                "state": "in_progress",
-                "when": "2 hours ago",
-                "retries": 2,
-            },
-            {
-                "title": "AI Processing Error",
-                "context": "Data Analytics Services",
-                "detail": "AI model returned invalid response format",
-                "severity": "high",
-                "state": "new",
-                "when": "4 hours ago",
-                "retries": 1,
-            },
-            {
-                "title": "Webhook Timeout",
-                "context": "Slack notifier",
-                "detail": "Webhook receiver did not respond in 10s",
-                "severity": "low",
-                "state": "resolved",
-                "when": "1 day ago",
-                "retries": 3,
-            },
-        ],
+        "recent_errors": [],
     }
 
 
@@ -496,80 +432,29 @@ def system_health() -> Dict[str, Any]:
 @app.get("/api/dashboard/kpis")
 def dashboard_kpis() -> Dict[str, Any]:
     return {
-        "total_opportunities": 47,
-        "qualified": 23,
-        "proposals_generated": 15,
-        "submitted": 8,
-        "total_pipeline_value": 2_500_000,
-        "win_rate": 32.5,
-        "deltas": {
-            "total_opportunities": "+12%",
-            "qualified": "+8%",
-            "proposals_generated": "+15%",
-            "submitted": "+5%",
-            "total_pipeline_value": "+22%",
-            "win_rate": "+3.2%",
-        },
+        "total_opportunities": 0,
+        "qualified": 0,
+        "proposals_generated": 0,
+        "submitted": 0,
+        "total_pipeline_value": 0,
+        "win_rate": 0.0,
+        "deltas": {},
         "pipeline_stages": [
-            {"stage": "new", "label": "New Opportunities", "count": 47, "tone": "ink"},
-            {"stage": "enriched", "label": "Data Enriched", "count": 35, "tone": "brass"},
-            {"stage": "qualified", "label": "Qualified", "count": 23, "tone": "good"},
-            {"stage": "proposal_ready", "label": "Proposal Generated", "count": 15, "tone": "brass"},
-            {"stage": "submitted", "label": "Submitted", "count": 8, "tone": "warn"},
-            {"stage": "awarded", "label": "Awarded", "count": 3, "tone": "good"},
+            {"stage": "new", "label": "New Opportunities", "count": 0, "tone": "ink"},
+            {"stage": "enriched", "label": "Data Enriched", "count": 0, "tone": "brass"},
+            {"stage": "qualified", "label": "Qualified", "count": 0, "tone": "good"},
+            {"stage": "proposal_ready", "label": "Proposal Generated", "count": 0, "tone": "brass"},
+            {"stage": "submitted", "label": "Submitted", "count": 0, "tone": "warn"},
+            {"stage": "awarded", "label": "Awarded", "count": 0, "tone": "good"},
         ],
-        "conversion_rate": 6.4,
+        "conversion_rate": 0.0,
     }
 
 
 @app.get("/api/activity")
 def activity() -> Dict[str, Any]:
-    return {
-        "events": [
-            {
-                "id": "evt-1",
-                "kind": "opportunity_detected",
-                "title": "New opportunity detected",
-                "detail": "AI Development Services — Department of Defense",
-                "when": "2 minutes ago",
-            },
-            {
-                "id": "evt-2",
-                "kind": "qualified",
-                "title": "Qualification analysis completed",
-                "detail": "Cybersecurity Consulting — DHS marked as Qualified",
-                "when": "15 minutes ago",
-            },
-            {
-                "id": "evt-3",
-                "kind": "proposal_generated",
-                "title": "Proposal generated",
-                "detail": "Data Analytics Platform — EPA capability statement created",
-                "when": "1 hour ago",
-            },
-            {
-                "id": "evt-4",
-                "kind": "agent_processed",
-                "title": "AI Agent processed opportunity",
-                "detail": "Deep-Dive Scraper extracted details from 3 new opportunities",
-                "when": "2 hours ago",
-            },
-            {
-                "id": "evt-5",
-                "kind": "manual_review",
-                "title": "Manual review required",
-                "detail": "Cloud Migration Services — VA needs human evaluation",
-                "when": "3 hours ago",
-            },
-            {
-                "id": "evt-6",
-                "kind": "submitted",
-                "title": "Proposal submitted",
-                "detail": "Software Development — NASA proposal successfully submitted",
-                "when": "5 hours ago",
-            },
-        ]
-    }
+    # Real activity log lands once we wire workspace events into Supabase.
+    return {"events": []}
 
 
 # ---------- chat assistant ----------
@@ -640,49 +525,11 @@ def chat(body: ChatIn) -> Dict[str, str]:
         return {"reply": f"{live}\n\n{hint}" if hint else live}
 
     hint = _route_hint(last_user)
-    summary_text = (
-        "Here's a quick read on your pipeline:\n\n"
-        "• 47 total opportunities, 23 qualified (52% qualification rate)\n"
-        "• $2.5M total pipeline value (+32% MoM)\n"
-        "• 15 proposals generated, 8 submitted, 3 awarded\n"
-        "• Highest-fit right now: Cloud Migration Services (VA) — score 87, due in 5 days\n"
-        "• Watch-out: Data Analytics Platform (DOE) closes in 3 days — confirm staffing"
+    reply = (
+        "I'm running without an LLM key right now, so I can only route you "
+        "around the app. Set `ANTHROPIC_API_KEY` in Vercel to get real "
+        "answers about your pipeline."
     )
-
-    lower = last_user.lower()
-    if "summarize" in lower or "summary" in lower or "pipeline" in lower:
-        reply = summary_text
-    elif "prioritize" in lower or "priority" in lower or "this week" in lower:
-        reply = (
-            "Three to prioritize this week:\n\n"
-            "1. Cloud Migration Services (VA) — score 87, SDVOSB set-aside, due in 5 days\n"
-            "2. DevSecOps Platform (USAF) — score 82, due in 8 days\n"
-            "3. Data Analytics Platform (DOE) — score 71, due in 3 days — tight timeline"
-        )
-    elif "blocking" in lower or "blocked" in lower:
-        reply = (
-            "Two drafts are blocked:\n\n"
-            "• Cybersecurity A&A — 3 [NEEDS HUMAN INPUT] flags on pricing and CMMC certs\n"
-            "• Cloud Migration — past-performance citations not yet approved in the vault"
-        )
-    elif "capability statement" in lower or "draft" in lower:
-        reply = (
-            "Draft outline (you'll edit + approve before anything is final):\n\n"
-            "• Corporate overview & UEI/CAGE\n"
-            "• Core competencies (cloud, DevSecOps, cyber)\n"
-            "• Differentiators (SDVOSB, CMMC L2, FedRAMP)\n"
-            "• Past performance — pull 3 from approved vault\n"
-            "• NAICS codes & contact\n\n"
-            "Want me to pre-fill from your vault?"
-        )
-    else:
-        reply = (
-            f"I heard: “{last_user}”.\n\n"
-            "In demo mode I can summarize the pipeline, suggest priorities, surface "
-            "blocked drafts, or draft a capability statement. Once the real backend is "
-            "wired up, I'll have full read/write access to your opportunities."
-        )
-
     if hint:
         reply = f"{reply}\n\n{hint}"
     return {"reply": reply}
