@@ -5,9 +5,11 @@ Replace with the real FastAPI app in /autobid/apps/api/ once Postgres,
 Anthropic, OpenAI, and SAM.gov keys are wired up (Celery + weasyprint need
 non-serverless infra).
 """
+import ipaddress
 import json
 import os
 import re
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -710,14 +712,80 @@ class _TextExtractor(HTMLParser):
             self.parts.append(s)
 
 
-def _fetch_text(url: str, max_chars: int = 8000) -> str:
-    if not re.match(r"^https?://", url):
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects so SSRF validation can't be bypassed by a 30x to an
+    internal host."""
+
+    def http_error_301(self, req, fp, code, msg, headers):  # type: ignore[override]
+        raise urllib.error.HTTPError(req.full_url, code, "redirects disabled", headers, fp)
+
+    http_error_302 = http_error_301
+    http_error_303 = http_error_301
+    http_error_307 = http_error_301
+    http_error_308 = http_error_301
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+
+
+def _validate_public_url(url: str) -> str:
+    """Reject anything that could SSRF: non-http(s) schemes, hosts that
+    resolve to private / loopback / link-local / reserved IP space, or
+    embedded credentials.
+
+    Returns the normalised URL on success; raises ValueError otherwise.
+    """
+    if not re.match(r"^https?://", url, re.IGNORECASE):
         url = "https://" + url
-    req = urllib.request.Request(url, headers={
+
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise ValueError(f"scheme not allowed: {parsed.scheme}")
+    if parsed.username or parsed.password:
+        raise ValueError("credentials in URL not allowed")
+
+    host = parsed.hostname
+    if not host:
+        raise ValueError("missing host")
+
+    # Hard-deny common cloud-metadata host literals, even before DNS.
+    if host.lower() in {"metadata.google.internal", "metadata", "instance-data"}:
+        raise ValueError("host is a cloud metadata service")
+
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as e:
+        raise ValueError(f"dns lookup failed: {e}")
+    if not infos:
+        raise ValueError("dns lookup returned no addresses")
+
+    for info in infos:
+        addr = info[4][0]
+        # IPv6 scoped addresses include a "%zone"; strip it.
+        addr = addr.split("%", 1)[0]
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            raise ValueError(f"could not parse address: {addr}")
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            raise ValueError(f"host resolves to non-public address: {ip}")
+    return url
+
+
+def _fetch_text(url: str, max_chars: int = 8000) -> str:
+    safe_url = _validate_public_url(url)
+    req = urllib.request.Request(safe_url, headers={
         "User-Agent": "AutoBid/0.1 (+https://auto-bid-smoky.vercel.app)",
         "Accept": "text/html,application/xhtml+xml",
     })
-    with urllib.request.urlopen(req, timeout=8) as resp:
+    with _NO_REDIRECT_OPENER.open(req, timeout=8) as resp:
         raw = resp.read(200_000).decode("utf-8", errors="ignore")
     parser = _TextExtractor()
     try:
@@ -779,7 +847,9 @@ def suggest_naics(body: SuggestNaicsIn) -> Dict[str, Any]:
     for u in urls[:4]:
         try:
             fetched.append({"url": u, "text": _fetch_text(u)})
-        except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        except ValueError as e:
+            errors.append(f"{u}: rejected ({e})")
+        except (urllib.error.URLError, TimeoutError) as e:
             errors.append(f"{u}: {type(e).__name__}")
 
     live = _try_naics_anthropic(body.company_name or "", body.description or "", fetched)
@@ -982,7 +1052,9 @@ class ScrapeIn(BaseModel):
 def scrape_url(body: ScrapeIn) -> Dict[str, Any]:
     try:
         text = _fetch_text(body.url, max_chars=20000)
-    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"URL not allowed: {e}")
+    except (urllib.error.URLError, TimeoutError) as e:
         raise HTTPException(status_code=502, detail=f"Could not fetch {body.url}: {type(e).__name__}")
     summary = _try_scrape_anthropic(body.url, text)
     return {"url": body.url, "text": text, "summary": summary, "source": "anthropic" if summary else "raw"}
