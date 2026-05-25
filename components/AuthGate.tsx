@@ -30,7 +30,7 @@ export function AuthGate({ children }: { children: (ctx: Ctx) => React.ReactNode
           const name = u.email ? u.email.split("@")[0] : "My company";
           c = await createCompany(name);
         } catch (e) {
-          setError(e instanceof Error ? e.message : String(e));
+          setError(formatError(e));
           return;
         } finally {
           if (!cancelled) setCreating(false);
@@ -79,4 +79,19 @@ export function AuthGate({ children }: { children: (ctx: Ctx) => React.ReactNode
     );
   }
   return <>{children(ctx)}</>;
+}
+
+function formatError(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === "object") {
+    const obj = e as Record<string, unknown>;
+    const parts: string[] = [];
+    if (typeof obj.message === "string") parts.push(obj.message);
+    if (typeof obj.code === "string") parts.push(`(code: ${obj.code})`);
+    if (typeof obj.hint === "string") parts.push(`hint: ${obj.hint}`);
+    if (typeof obj.details === "string") parts.push(`details: ${obj.details}`);
+    if (parts.length) return parts.join(" — ");
+    try { return JSON.stringify(e); } catch { /* fallthrough */ }
+  }
+  return String(e);
 }
