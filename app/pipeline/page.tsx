@@ -1,7 +1,7 @@
 "use client";
 import {
   Building2, CheckCircle2, Clock, DollarSign, ExternalLink, FileText,
-  Loader2, Search,
+  LayoutGrid, Loader2, Search, Table as TableIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -44,6 +44,7 @@ export default function PipelinePage() {
   const [stage, setStage] = useState<string>("all");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<"due" | "value" | "score">("due");
+  const [view, setView] = useState<"table" | "kanban">("table");
 
   useEffect(() => {
     const u = new URL("/api/pipeline", window.location.origin);
@@ -76,6 +77,20 @@ export default function PipelinePage() {
   return (
     <>
       <PageHeader eyebrow="Capture desk" title="Pipeline">
+        <div className="inline-flex border border-line rounded-sm overflow-hidden">
+          <button onClick={() => setView("table")}
+            className={`px-3 py-1.5 text-xs font-mono uppercase tracking-wider inline-flex items-center gap-1.5 ${
+              view === "table" ? "bg-ink text-paper" : "text-ink-soft hover:bg-paper"
+            }`}>
+            <TableIcon size={12} /> Table
+          </button>
+          <button onClick={() => setView("kanban")}
+            className={`px-3 py-1.5 text-xs font-mono uppercase tracking-wider inline-flex items-center gap-1.5 ${
+              view === "kanban" ? "bg-ink text-paper" : "text-ink-soft hover:bg-paper"
+            }`}>
+            <LayoutGrid size={12} /> Kanban
+          </button>
+        </div>
         <Link href="/add-opportunity"
           className="text-xs font-mono uppercase tracking-wider px-3 py-2 bg-ink text-paper rounded-sm hover:bg-navy">
           + Add opportunity
@@ -115,6 +130,9 @@ export default function PipelinePage() {
           </div>
         </Card>
 
+        {view === "kanban" ? (
+          <KanbanBoard items={sortedItems} stageLabels={data.stage_labels} />
+        ) : (
         <Card className="overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -189,6 +207,7 @@ export default function PipelinePage() {
             </tbody>
           </table>
         </Card>
+        )}
 
         <div className="grid grid-cols-4 gap-4">
           <Totals icon={<DollarSign size={16} className="text-good" />}
@@ -202,6 +221,52 @@ export default function PipelinePage() {
         </div>
       </div>
     </>
+  );
+}
+
+function KanbanBoard({ items, stageLabels }:
+  { items: PipelineItem[]; stageLabels: Record<string, string> }) {
+  const stages = Object.keys(stageLabels);
+  const grouped = Object.fromEntries(
+    stages.map((s) => [s, items.filter((i) => i.stage === s)])
+  ) as Record<string, PipelineItem[]>;
+  return (
+    <div className="grid grid-cols-6 gap-3 overflow-x-auto">
+      {stages.map((s) => (
+        <div key={s} className="min-w-[180px]">
+          <div className="flex items-center justify-between mb-2 px-1">
+            <div className="text-[11px] font-mono uppercase tracking-wider text-ink-faint">
+              {stageLabels[s]}
+            </div>
+            <Badge tone={STAGE_TONE[s] || "ink"}>{grouped[s].length}</Badge>
+          </div>
+          <div className="space-y-2">
+            {grouped[s].map((o) => {
+              const d = daysLeft(o.response_deadline);
+              const overdue = d != null && d < 0;
+              return (
+                <Link key={o.id} href={`/opportunity/${o.id}`}
+                  className="block bg-card border border-line rounded-sm p-3 hover:border-ink transition-colors">
+                  <div className="text-sm font-medium line-clamp-2">{o.title}</div>
+                  <div className="text-[11px] text-ink-faint mt-1.5">{o.agency}</div>
+                  <div className="mt-3 flex items-center justify-between text-[11px] font-mono">
+                    <span className="tnum">
+                      {o.value ? `$${(o.value / 1000).toFixed(0)}K` : "—"}
+                    </span>
+                    <span className={overdue ? "text-bad" : "text-ink-faint"}>
+                      {d != null ? (overdue ? `${Math.abs(d)}d over` : `${d}d`) : "—"}
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
+            {grouped[s].length === 0 && (
+              <div className="text-[11px] text-ink-faint italic px-1">empty</div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 

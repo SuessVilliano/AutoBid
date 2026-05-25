@@ -7,6 +7,7 @@ non-serverless infra).
 """
 from __future__ import annotations
 
+import os
 from datetime import date, timedelta
 from typing import Any
 
@@ -591,11 +592,46 @@ def _route_hint(text: str) -> str | None:
     return None
 
 
+SYSTEM_PROMPT = (
+    "You are the AutoBid copilot — a human-gated government contract bidding "
+    "and grant submission assistant. Be concise (3-6 short paragraphs max), "
+    "factual, and never invent solicitation numbers, certifications, or "
+    "pricing. Defer pricing, attestations, and final submission to the human. "
+    "When relevant, suggest the user navigate to /pipeline, /analytics, "
+    "/agents, /add-opportunity, or /health."
+)
+
+
+def _try_anthropic(messages: list[dict[str, str]]) -> str | None:
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        return None
+    try:
+        from anthropic import Anthropic
+        model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+        client = Anthropic(api_key=key)
+        resp = client.messages.create(
+            model=model,
+            max_tokens=600,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": m["role"], "content": m["content"]} for m in messages if m["role"] in ("user", "assistant")],
+        )
+        parts = [b.text for b in resp.content if getattr(b, "type", "") == "text"]
+        return "\n".join(parts).strip() or None
+    except Exception:
+        return None
+
+
 @app.post("/api/chat")
 def chat(body: ChatIn) -> dict[str, str]:
     last_user = next((m.content for m in reversed(body.messages) if m.role == "user"), "")
     if not last_user:
         return {"reply": "Ask me anything about your pipeline."}
+
+    live = _try_anthropic([{"role": m.role, "content": m.content} for m in body.messages])
+    if live:
+        hint = _route_hint(last_user)
+        return {"reply": f"{live}\n\n{hint}" if hint else live}
 
     hint = _route_hint(last_user)
     summary_text = (
