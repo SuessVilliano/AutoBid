@@ -5,11 +5,9 @@ Replace with the real FastAPI app in /autobid/apps/api/ once Postgres,
 Anthropic, OpenAI, and SAM.gov keys are wired up (Celery + weasyprint need
 non-serverless infra).
 """
-from __future__ import annotations
-
 import os
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -21,7 +19,7 @@ def _iso(days_ahead: int) -> str:
     return (date.today() + timedelta(days=days_ahead)).isoformat()
 
 
-DEMO_OPPS: list[dict[str, Any]] = [
+DEMO_OPPS: List[Dict[str, Any]] = [
     {
         "id": "opp-001",
         "title": "Cloud Migration Services for Veterans Affairs Regional Office",
@@ -145,7 +143,7 @@ DEMO_OPPS: list[dict[str, Any]] = [
 ]
 
 
-def _opp_detail(opp_id: str) -> dict[str, Any] | None:
+def _opp_detail(opp_id: str) -> Optional[Dict[str, Any]]:
     base = next((o for o in DEMO_OPPS if o["id"] == opp_id), None)
     if not base:
         return None
@@ -189,18 +187,18 @@ def _opp_detail(opp_id: str) -> dict[str, Any] | None:
 # ---------- existing routes (kept for the dashboard/feed) ----------
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
+def health() -> Dict[str, str]:
     return {"status": "ok", "mode": "demo"}
 
 
 @app.get("/api/companies/{company_id}/feed")
-def feed(company_id: str, min_score: int = 0, limit: int = 100) -> dict[str, Any]:
+def feed(company_id: str, min_score: int = 0, limit: int = 100) -> Dict[str, Any]:
     items = [o for o in DEMO_OPPS if (o["total_score"] or 0) >= min_score][:limit]
     return {"items": items}
 
 
 @app.get("/api/companies/{company_id}/opportunities/{opportunity_id}")
-def opportunity_detail(company_id: str, opportunity_id: str) -> dict[str, Any]:
+def opportunity_detail(company_id: str, opportunity_id: str) -> Dict[str, Any]:
     detail = _opp_detail(opportunity_id)
     if not detail:
         raise HTTPException(404, "not found")
@@ -208,7 +206,7 @@ def opportunity_detail(company_id: str, opportunity_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/opportunities/{opportunity_id}/summary")
-def summary(opportunity_id: str) -> dict[str, str]:
+def summary(opportunity_id: str) -> Dict[str, str]:
     base = next((o for o in DEMO_OPPS if o["id"] == opportunity_id), None)
     if not base:
         raise HTTPException(404, "not found")
@@ -223,7 +221,7 @@ def summary(opportunity_id: str) -> dict[str, str]:
 
 
 @app.post("/api/companies/{company_id}/opportunities/{opportunity_id}/score")
-def score(company_id: str, opportunity_id: str) -> dict[str, Any]:
+def score(company_id: str, opportunity_id: str) -> Dict[str, Any]:
     detail = _opp_detail(opportunity_id)
     if not detail:
         raise HTTPException(404, "not found")
@@ -231,12 +229,12 @@ def score(company_id: str, opportunity_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/companies/{company_id}/workspaces")
-def create_workspace(company_id: str) -> dict[str, str]:
+def create_workspace(company_id: str) -> Dict[str, str]:
     return {"workspace_id": "demo-workspace-1"}
 
 
 @app.get("/api/workspaces/{workspace_id}")
-def get_workspace(workspace_id: str) -> dict[str, Any]:
+def get_workspace(workspace_id: str) -> Dict[str, Any]:
     return {
         "workspace": {
             "id": workspace_id,
@@ -252,12 +250,12 @@ def get_workspace(workspace_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/workspaces/{workspace_id}/compliance")
-def list_compliance(workspace_id: str) -> dict[str, list]:
+def list_compliance(workspace_id: str) -> Dict[str, list]:
     return {"items": []}
 
 
 @app.get("/api/workspaces/{workspace_id}/compliance/ready")
-def compliance_ready(workspace_id: str) -> dict[str, Any]:
+def compliance_ready(workspace_id: str) -> Dict[str, Any]:
     return {"ready": False, "open_items": 0, "unsigned_attestations": 0}
 
 
@@ -274,7 +272,7 @@ STAGE_LABELS = {
 
 
 @app.get("/api/pipeline")
-def pipeline(stage: str | None = None, q: str | None = None) -> dict[str, Any]:
+def pipeline(stage: Optional[str] = None, q: Optional[str] = None) -> Dict[str, Any]:
     items = list(DEMO_OPPS)
     if stage and stage != "all":
         items = [o for o in items if o["stage"] == stage]
@@ -305,15 +303,15 @@ class OpportunityIn(BaseModel):
     agency: str
     url: str
     type: str = "Contract"
-    value: int | None = None
-    due_date: str | None = None
-    naics: str | None = None
-    description: str | None = None
-    contact: str | None = None
+    value: Optional[int] = None
+    due_date: Optional[str] = None
+    naics: Optional[str] = None
+    description: Optional[str] = None
+    contact: Optional[str] = None
 
 
 @app.post("/api/opportunities")
-def create_opportunity(body: OpportunityIn) -> dict[str, Any]:
+def create_opportunity(body: OpportunityIn) -> Dict[str, Any]:
     return {
         "id": f"opp-new-{abs(hash(body.title)) % 10000:04d}",
         "status": "queued",
@@ -364,7 +362,7 @@ AGENTS = [
 
 
 @app.get("/api/agents")
-def list_agents() -> dict[str, Any]:
+def list_agents() -> Dict[str, Any]:
     return {
         "agents": AGENTS,
         "performance": {
@@ -378,7 +376,7 @@ def list_agents() -> dict[str, Any]:
 # ---------- analytics ----------
 
 @app.get("/api/analytics")
-def analytics() -> dict[str, Any]:
+def analytics() -> Dict[str, Any]:
     return {
         "headline": {
             "total_opportunities": 47,
@@ -432,7 +430,7 @@ def analytics() -> dict[str, Any]:
 # ---------- system health ----------
 
 @app.get("/api/system/health")
-def system_health() -> dict[str, Any]:
+def system_health() -> Dict[str, Any]:
     return {
         "updated_at": _iso(0) + "T08:00:31Z",
         "metrics": [
@@ -488,7 +486,7 @@ def system_health() -> dict[str, Any]:
 # ---------- dashboard rollups ----------
 
 @app.get("/api/dashboard/kpis")
-def dashboard_kpis() -> dict[str, Any]:
+def dashboard_kpis() -> Dict[str, Any]:
     return {
         "total_opportunities": 47,
         "qualified": 23,
@@ -517,7 +515,7 @@ def dashboard_kpis() -> dict[str, Any]:
 
 
 @app.get("/api/activity")
-def activity() -> dict[str, Any]:
+def activity() -> Dict[str, Any]:
     return {
         "events": [
             {
@@ -574,10 +572,10 @@ class ChatMsg(BaseModel):
 
 
 class ChatIn(BaseModel):
-    messages: list[ChatMsg]
+    messages: List[ChatMsg]
 
 
-def _route_hint(text: str) -> str | None:
+def _route_hint(text: str) -> Optional[str]:
     t = text.lower()
     if any(k in t for k in ["pipeline", "stage", "kanban"]):
         return "Take me to → /pipeline"
@@ -602,7 +600,7 @@ SYSTEM_PROMPT = (
 )
 
 
-def _try_anthropic(messages: list[dict[str, str]]) -> str | None:
+def _try_anthropic(messages: List[Dict[str, str]]) -> Optional[str]:
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         return None
@@ -623,7 +621,7 @@ def _try_anthropic(messages: list[dict[str, str]]) -> str | None:
 
 
 @app.post("/api/chat")
-def chat(body: ChatIn) -> dict[str, str]:
+def chat(body: ChatIn) -> Dict[str, str]:
     last_user = next((m.content for m in reversed(body.messages) if m.role == "user"), "")
     if not last_user:
         return {"reply": "Ask me anything about your pipeline."}
