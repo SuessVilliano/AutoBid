@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getActiveCompany, getCurrentUser, type AppUser } from "@/lib/data";
+import { createCompany, getActiveCompany, getCurrentUser, type AppUser } from "@/lib/data";
 import type { CompanyProfile } from "@/lib/companyProfile";
 
 type Ctx = { user: AppUser; company: CompanyProfile };
@@ -10,7 +10,8 @@ type Ctx = { user: AppUser; company: CompanyProfile };
 export function AuthGate({ children }: { children: (ctx: Ctx) => React.ReactNode }) {
   const router = useRouter();
   const [ctx, setCtx] = useState<Ctx | null>(null);
-  const [needsCompany, setNeedsCompany] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -21,30 +22,46 @@ export function AuthGate({ children }: { children: (ctx: Ctx) => React.ReactNode
         router.replace("/login");
         return;
       }
-      const c = await getActiveCompany();
+      let c = await getActiveCompany();
       if (cancelled) return;
       if (!c) {
-        setNeedsCompany(true);
-        return;
+        setCreating(true);
+        try {
+          const name = u.email ? u.email.split("@")[0] : "My company";
+          c = await createCompany(name);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+          return;
+        } finally {
+          if (!cancelled) setCreating(false);
+        }
       }
+      if (cancelled) return;
       setCtx({ user: u, company: c });
     })();
     return () => { cancelled = true; };
   }, [router]);
 
-  if (needsCompany) {
+  if (error) {
     return (
       <div className="p-4 sm:p-8">
-        <div className="max-w-md mx-auto bg-card border border-line rounded-sm p-6 mt-12 text-center">
-          <h2 className="font-display text-xl mb-2">Almost there.</h2>
-          <p className="text-sm text-ink-soft mb-5">
-            Create your first company to start scoring opportunities.
+        <div className="max-w-md mx-auto bg-card border border-line rounded-sm p-6 mt-12">
+          <h2 className="font-display text-xl mb-2">Couldn't set up your account</h2>
+          <p className="text-sm text-bad font-mono bg-bad/5 border border-bad/30 rounded-sm p-2.5 mb-4">{error}</p>
+          <p className="text-sm text-ink-soft mb-4">
+            This usually means the Supabase database tables haven't been created yet.
+            Run <code>supabase/migrations/0001_init.sql</code> in your Supabase SQL editor.
           </p>
-          <a href="/login?firstcompany=1"
-            className="inline-block bg-ink text-paper px-4 py-2 rounded-sm text-sm">
-            Set up company →
-          </a>
+          <a href="/login" className="inline-block text-sm font-mono text-brass hover:text-ink">← Back to sign in</a>
         </div>
+      </div>
+    );
+  }
+
+  if (creating) {
+    return (
+      <div className="p-4 sm:p-8 flex items-center justify-center min-h-[60vh]">
+        <div className="text-sm text-ink-soft font-mono">Setting up your workspace…</div>
       </div>
     );
   }

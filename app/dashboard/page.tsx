@@ -74,7 +74,9 @@ function DashboardBody() {
       </>
     );
 
-  const maxStage = Math.max(...kpis.pipeline_stages.map((s) => s.count));
+  const maxStage = Math.max(1, ...kpis.pipeline_stages.map((s) => s.count));
+  const isEmpty = kpis.total_opportunities === 0 && kpis.qualified === 0
+                  && kpis.submitted === 0 && events.length === 0;
 
   return (
     <>
@@ -86,6 +88,24 @@ function DashboardBody() {
         <p className="text-sm text-ink-soft -mt-2">
           Real-time overview of your government contract acquisition pipeline.
         </p>
+
+        {isEmpty && (
+          <Card className="p-6 bg-brass/5 border-brass/30">
+            <h3 className="font-display text-lg mb-2">Welcome — let's set you up.</h3>
+            <p className="text-sm text-ink-soft mb-4 max-w-prose">
+              Your dashboard is empty because you haven't qualified any opportunities yet.
+              Three quick steps:
+            </p>
+            <ol className="text-sm text-ink-soft list-decimal list-inside space-y-1.5 mb-4">
+              <li><Link href="/settings" className="text-brass hover:text-ink">Fill in your company profile</Link> — name, websites, NAICS codes</li>
+              <li><Link href="/vault" className="text-brass hover:text-ink">Upload (or AI-draft) your capability statement</Link> in the vault</li>
+              <li><Link href="/feed" className="text-brass hover:text-ink">Browse the SAM.gov feed</Link> — opportunities are filtered to your NAICS</li>
+            </ol>
+            <p className="text-[11px] font-mono text-ink-faint">
+              Counters below will populate as you move opportunities through your pipeline.
+            </p>
+          </Card>
+        )}
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-5">
           <Kpi label="Total opportunities" value={kpis.total_opportunities}

@@ -10,6 +10,7 @@ import { Badge, Button } from "@/components/ui/primitives";
 import { api, COMPANY_ID } from "@/lib/api";
 import { enabledNaics, type CompanyProfile } from "@/lib/companyProfile";
 import { daysLeft, fmtDate } from "@/lib/format";
+import { supabaseEnabled } from "@/lib/supabase/env";
 import type { FeedItem } from "@/lib/types";
 
 const FILTERS = [
@@ -29,7 +30,7 @@ export default function FeedPage() {
 }
 
 function FeedBody({ company }: { company: CompanyProfile }) {
-  const [source, setSource] = useState<Source>("demo");
+  const [source, setSource] = useState<Source>(supabaseEnabled ? "sam" : "demo");
   const [items, setItems] = useState<FeedItem[]>([]);
   const [min, setMin] = useState(0);
   const [loading, setLoading] = useState(true);
