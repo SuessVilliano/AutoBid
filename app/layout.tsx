@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Archivo, Fraunces, IBM_Plex_Mono } from "next/font/google";
 import { Sidebar } from "@/components/Sidebar";
+import { ChatAssistant } from "@/components/ChatAssistant";
 import "./globals.css";
 
 const display = Fraunces({
@@ -27,6 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Sidebar />
           <main className="flex-1 min-w-0">{children}</main>
         </div>
+        <ChatAssistant />
       </body>
     </html>
   );

@@ -1,12 +1,20 @@
 "use client";
 import clsx from "clsx";
-import { FileStack, Gauge, Inbox, Settings, Vault } from "lucide-react";
+import {
+  Activity, BarChart3, Bot, FileStack, Gauge, Inbox, LayoutList,
+  PlusCircle, Settings, Vault,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const NAV = [
   { href: "/", label: "Dashboard", icon: Gauge },
   { href: "/feed", label: "Opportunity Feed", icon: Inbox },
+  { href: "/pipeline", label: "Pipeline", icon: LayoutList },
+  { href: "/add-opportunity", label: "Add Opportunity", icon: PlusCircle },
+  { href: "/agents", label: "AI Agents", icon: Bot },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/health", label: "System Health", icon: Activity },
   { href: "/vault", label: "Company Vault", icon: Vault },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -19,6 +27,10 @@ export function Sidebar() {
         <div className="font-display text-2xl leading-none tracking-tight">AutoBid</div>
         <div className="font-mono text-[10px] uppercase tracking-[0.25em] text-brass mt-1">
           Capture&nbsp;·&nbsp;Desk
+        </div>
+        <div className="mt-3 flex items-center gap-1.5 text-[10px] font-mono text-good">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-good animate-pulse" />
+          SYSTEM ACTIVE
         </div>
       </Link>
       <nav className="space-y-1">

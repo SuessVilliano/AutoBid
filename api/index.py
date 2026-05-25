@@ -11,8 +11,9 @@ from datetime import date, timedelta
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
-app = FastAPI(title="AutoBid Demo API", version="0.1.0-demo")
+app = FastAPI(title="AutoBid Demo API", version="0.2.0-demo")
 
 
 def _iso(days_ahead: int) -> str:
@@ -23,68 +24,122 @@ DEMO_OPPS: list[dict[str, Any]] = [
     {
         "id": "opp-001",
         "title": "Cloud Migration Services for Veterans Affairs Regional Office",
+        "agency": "Department of Veterans Affairs",
         "naics": "541512",
         "set_aside": "SDVOSB",
+        "value": 480000,
         "response_deadline": _iso(5),
         "url": "https://sam.gov/opp/demo-001",
         "total_score": 87,
         "recommended": True,
         "rationale": "Strong NAICS match, agency past performance, and a comfortable timeline.",
+        "stage": "qualified",
+        "type": "Contract",
     },
     {
         "id": "opp-002",
         "title": "Cybersecurity Assessment and Authorization (A&A) Support",
+        "agency": "Department of Homeland Security",
         "naics": "541519",
         "set_aside": "Small Business",
+        "value": 320000,
         "response_deadline": _iso(12),
         "url": "https://sam.gov/opp/demo-002",
         "total_score": 79,
         "recommended": True,
         "rationale": "Aligned with cyber capability statement; CMMC L2 is a plus.",
+        "stage": "proposal_ready",
+        "type": "Contract",
     },
     {
         "id": "opp-003",
         "title": "Data Analytics Platform Modernization — Department of Energy",
+        "agency": "Department of Energy",
         "naics": "541511",
         "set_aside": None,
+        "value": 750000,
         "response_deadline": _iso(3),
         "url": "https://sam.gov/opp/demo-003",
         "total_score": 71,
         "recommended": True,
         "rationale": "Tight deadline but strong technical fit.",
+        "stage": "enriched",
+        "type": "Contract",
     },
     {
         "id": "opp-004",
         "title": "AI / ML Research Support — DARPA",
+        "agency": "DARPA",
         "naics": "541715",
         "set_aside": None,
+        "value": 1200000,
         "response_deadline": _iso(21),
         "url": "https://sam.gov/opp/demo-004",
         "total_score": 64,
         "recommended": False,
         "rationale": "Adjacent NAICS; weak past performance signal.",
+        "stage": "new",
+        "type": "Contract",
     },
     {
         "id": "opp-005",
         "title": "Help Desk and End-User Support Services",
+        "agency": "General Services Administration",
         "naics": "541513",
         "set_aside": "8(a)",
+        "value": 220000,
         "response_deadline": _iso(30),
         "url": "https://sam.gov/opp/demo-005",
         "total_score": 58,
         "recommended": False,
         "rationale": "Lower-margin support work, not a strategic fit.",
+        "stage": "not_fit",
+        "type": "Contract",
     },
     {
         "id": "opp-006",
         "title": "DevSecOps Platform — Air Force Software Factory",
+        "agency": "Department of the Air Force",
         "naics": "541512",
         "set_aside": "Small Business",
+        "value": 540000,
         "response_deadline": _iso(8),
         "url": "https://sam.gov/opp/demo-006",
         "total_score": 82,
         "recommended": True,
         "rationale": "Excellent NAICS + agency fit; pipeline experience matches.",
+        "stage": "submitted",
+        "type": "Contract",
+    },
+    {
+        "id": "opp-007",
+        "title": "Grant: Small Business Innovation Research Phase II",
+        "agency": "National Science Foundation",
+        "naics": "541715",
+        "set_aside": "Small Business",
+        "value": 1500000,
+        "response_deadline": _iso(45),
+        "url": "https://grants.gov/opp/demo-007",
+        "total_score": 76,
+        "recommended": True,
+        "rationale": "SBIR Phase I awarded — Phase II is a natural progression.",
+        "stage": "qualified",
+        "type": "Grant",
+    },
+    {
+        "id": "opp-008",
+        "title": "Translation Services for State Department Diplomatic Documents",
+        "agency": "State Department",
+        "naics": "541930",
+        "set_aside": "Set_aside",
+        "value": 75000,
+        "response_deadline": _iso(11),
+        "url": "https://sam.gov/opp/demo-008",
+        "total_score": 35,
+        "recommended": False,
+        "rationale": "NAICS mismatch.",
+        "stage": "not_fit",
+        "type": "Contract",
     },
 ]
 
@@ -97,7 +152,7 @@ def _opp_detail(opp_id: str) -> dict[str, Any] | None:
         "opportunity": {
             "id": base["id"],
             "source": "SAM.gov (demo)",
-            "type": "Solicitation",
+            "type": base["type"],
             "title": base["title"],
             "description": (
                 "This is a demo opportunity. Wire the real FastAPI backend "
@@ -130,6 +185,8 @@ def _opp_detail(opp_id: str) -> dict[str, Any] | None:
     }
 
 
+# ---------- existing routes (kept for the dashboard/feed) ----------
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "mode": "demo"}
@@ -157,7 +214,7 @@ def summary(opportunity_id: str) -> dict[str, str]:
     text = (
         f"{base['title']} is a federal opportunity in NAICS {base['naics']}. "
         f"The set-aside is {base['set_aside'] or 'unrestricted'}. "
-        f"Estimated value is mid-six figures (demo data). "
+        f"Estimated value is ${base['value']:,}. "
         f"Responses are due {base['response_deadline']}. "
         f"The biggest consideration is timeline — confirm staffing before bidding."
     )
@@ -201,3 +258,389 @@ def list_compliance(workspace_id: str) -> dict[str, list]:
 @app.get("/api/workspaces/{workspace_id}/compliance/ready")
 def compliance_ready(workspace_id: str) -> dict[str, Any]:
     return {"ready": False, "open_items": 0, "unsigned_attestations": 0}
+
+
+# ---------- pipeline ----------
+
+STAGE_LABELS = {
+    "new": "New",
+    "enriched": "Data Enriched",
+    "qualified": "Qualified",
+    "proposal_ready": "Proposal Ready",
+    "submitted": "Submitted",
+    "not_fit": "Not a Fit",
+}
+
+
+@app.get("/api/pipeline")
+def pipeline(stage: str | None = None, q: str | None = None) -> dict[str, Any]:
+    items = list(DEMO_OPPS)
+    if stage and stage != "all":
+        items = [o for o in items if o["stage"] == stage]
+    if q:
+        ql = q.lower()
+        items = [o for o in items if ql in o["title"].lower() or ql in (o["agency"] or "").lower()]
+    return {
+        "items": items,
+        "stage_labels": STAGE_LABELS,
+        "counts": {s: sum(1 for o in DEMO_OPPS if o["stage"] == s) for s in STAGE_LABELS},
+        "totals": {
+            "value": sum(o["value"] or 0 for o in items),
+            "qualified": sum(1 for o in items if o["stage"] == "qualified"),
+            "submitted": sum(1 for o in items if o["stage"] == "submitted"),
+            "due_this_week": sum(
+                1 for o in items
+                if o["response_deadline"]
+                and 0 <= (date.fromisoformat(o["response_deadline"]) - date.today()).days <= 7
+            ),
+        },
+    }
+
+
+# ---------- add opportunity ----------
+
+class OpportunityIn(BaseModel):
+    title: str
+    agency: str
+    url: str
+    type: str = "Contract"
+    value: int | None = None
+    due_date: str | None = None
+    naics: str | None = None
+    description: str | None = None
+    contact: str | None = None
+
+
+@app.post("/api/opportunities")
+def create_opportunity(body: OpportunityIn) -> dict[str, Any]:
+    return {
+        "id": f"opp-new-{abs(hash(body.title)) % 10000:04d}",
+        "status": "queued",
+        "message": "Opportunity queued for Deep-Dive Data Scraper. AI processing will begin shortly.",
+    }
+
+
+# ---------- agents ----------
+
+AGENTS = [
+    {
+        "id": "scraper",
+        "name": "Deep-Dive Data Scraper",
+        "role": "Data Extraction Specialist",
+        "status": "active",
+        "tasks_completed": 47,
+        "last_active": "2 hours ago",
+        "description": "Pulls solicitation details, attachments, and Q&A from SAM.gov, Grants.gov, and USAspending.",
+    },
+    {
+        "id": "qualifier",
+        "name": "Qualification Analyst",
+        "role": "Opportunity Evaluator",
+        "status": "processing",
+        "tasks_completed": 23,
+        "last_active": "30 minutes ago",
+        "description": "Scores opportunities against your NAICS, certifications, past performance, and strategic fit.",
+    },
+    {
+        "id": "writer",
+        "name": "Grant & Proposal Writer",
+        "role": "Content Generation Expert",
+        "status": "idle",
+        "tasks_completed": 15,
+        "last_active": "1 hour ago",
+        "description": "Drafts proposal sections from approved vault language. Flags missing facts as [NEEDS HUMAN INPUT].",
+    },
+    {
+        "id": "coordinator",
+        "name": "Submission Coordinator",
+        "role": "Process Manager",
+        "status": "active",
+        "tasks_completed": 31,
+        "last_active": "15 minutes ago",
+        "description": "Tracks compliance items, attestations, and the gated export workflow.",
+    },
+]
+
+
+@app.get("/api/agents")
+def list_agents() -> dict[str, Any]:
+    return {
+        "agents": AGENTS,
+        "performance": {
+            "total_tasks": sum(a["tasks_completed"] for a in AGENTS),
+            "active": sum(1 for a in AGENTS if a["status"] == "active"),
+            "processing": sum(1 for a in AGENTS if a["status"] == "processing"),
+        },
+    }
+
+
+# ---------- analytics ----------
+
+@app.get("/api/analytics")
+def analytics() -> dict[str, Any]:
+    return {
+        "headline": {
+            "total_opportunities": 47,
+            "qualification_rate": 52.3,
+            "win_rate": 23.5,
+            "total_pipeline_value": 2_500_000,
+            "deltas": {
+                "total_opportunities": "+18%",
+                "qualification_rate": "+5.2%",
+                "win_rate": "-2.1%",
+                "total_pipeline_value": "+32%",
+            },
+        },
+        "trends": [
+            {"week": "Week 1", "total": 8, "qualified": 4, "submitted": 2},
+            {"week": "Week 2", "total": 12, "qualified": 7, "submitted": 3},
+            {"week": "Week 3", "total": 15, "qualified": 8, "submitted": 5},
+            {"week": "Week 4", "total": 12, "qualified": 6, "submitted": 4},
+        ],
+        "status_distribution": [
+            {"label": "New", "count": 8, "pct": 17.0, "tone": "ink"},
+            {"label": "Enriched", "count": 6, "pct": 12.8, "tone": "brass"},
+            {"label": "Qualified", "count": 12, "pct": 25.5, "tone": "good"},
+            {"label": "Proposal Generated", "count": 8, "pct": 17.0, "tone": "brass"},
+            {"label": "Submitted", "count": 5, "pct": 10.6, "tone": "warn"},
+            {"label": "Not a Fit", "count": 8, "pct": 17.0, "tone": "bad"},
+        ],
+        "by_agency": [
+            {"name": "Department of Defense", "count": 12, "value": 850_000},
+            {"name": "GSA", "count": 8, "value": 420_000},
+            {"name": "Department of Commerce", "count": 6, "value": 380_000},
+            {"name": "EPA", "count": 5, "value": 290_000},
+            {"name": "Other", "count": 16, "value": 510_000},
+        ],
+        "top_naics": [
+            {"code": "541519", "label": "Other Computer Related Services", "count": 15},
+            {"code": "541511", "label": "Custom Computer Programming", "count": 12},
+            {"code": "541611", "label": "Management Consulting", "count": 8},
+            {"code": "541613", "label": "Marketing Consulting", "count": 6},
+            {"code": "518210", "label": "Data Processing Services", "count": 6},
+        ],
+        "agent_performance": [
+            {"name": "Deep-Dive Data Scraper", "tasks": 47, "avg_time_min": 12},
+            {"name": "Qualification Analyst", "tasks": 23, "avg_time_min": 8},
+            {"name": "Grant & Proposal Writer", "tasks": 15, "avg_time_min": 45},
+            {"name": "Submission Coordinator", "tasks": 31, "avg_time_min": 15},
+        ],
+    }
+
+
+# ---------- system health ----------
+
+@app.get("/api/system/health")
+def system_health() -> dict[str, Any]:
+    return {
+        "updated_at": _iso(0) + "T08:00:31Z",
+        "metrics": [
+            {"label": "System Uptime", "value": "99.8%", "target": "99.5%", "tone": "good"},
+            {"label": "Processing Success Rate", "value": "94.2%", "target": "95%", "tone": "warn"},
+            {"label": "Website Extraction Success", "value": "96.8%", "target": "95%", "tone": "good"},
+            {"label": "AI Qualification Accuracy", "value": "91.5%", "target": "90%", "tone": "good"},
+            {"label": "Proposal Generation Rate", "value": "88.3%", "target": "85%", "tone": "good"},
+            {"label": "Average Processing Time", "value": "4.2 min", "target": "5 min", "tone": "good"},
+            {"label": "Active Errors", "value": "3", "target": "0", "tone": "warn"},
+            {"label": "Queue Backlog", "value": "0", "target": "0", "tone": "good"},
+        ],
+        "components": [
+            {"name": "SAM.gov Integration", "status": "healthy"},
+            {"name": "Grants.gov Integration", "status": "healthy"},
+            {"name": "Postgres / Supabase", "status": "healthy"},
+            {"name": "LLM Provider (Anthropic)", "status": "warning"},
+            {"name": "Embedding Provider (OpenAI)", "status": "healthy"},
+            {"name": "Celery Worker / Beat", "status": "healthy"},
+        ],
+        "recent_errors": [
+            {
+                "title": "Website Extraction Failed",
+                "context": "AI Platform Development Contract",
+                "detail": "Connection timeout after 30 seconds",
+                "severity": "medium",
+                "state": "in_progress",
+                "when": "2 hours ago",
+                "retries": 2,
+            },
+            {
+                "title": "AI Processing Error",
+                "context": "Data Analytics Services",
+                "detail": "AI model returned invalid response format",
+                "severity": "high",
+                "state": "new",
+                "when": "4 hours ago",
+                "retries": 1,
+            },
+            {
+                "title": "Webhook Timeout",
+                "context": "Slack notifier",
+                "detail": "Webhook receiver did not respond in 10s",
+                "severity": "low",
+                "state": "resolved",
+                "when": "1 day ago",
+                "retries": 3,
+            },
+        ],
+    }
+
+
+# ---------- dashboard rollups ----------
+
+@app.get("/api/dashboard/kpis")
+def dashboard_kpis() -> dict[str, Any]:
+    return {
+        "total_opportunities": 47,
+        "qualified": 23,
+        "proposals_generated": 15,
+        "submitted": 8,
+        "total_pipeline_value": 2_500_000,
+        "win_rate": 32.5,
+        "deltas": {
+            "total_opportunities": "+12%",
+            "qualified": "+8%",
+            "proposals_generated": "+15%",
+            "submitted": "+5%",
+            "total_pipeline_value": "+22%",
+            "win_rate": "+3.2%",
+        },
+        "pipeline_stages": [
+            {"stage": "new", "label": "New Opportunities", "count": 47, "tone": "ink"},
+            {"stage": "enriched", "label": "Data Enriched", "count": 35, "tone": "brass"},
+            {"stage": "qualified", "label": "Qualified", "count": 23, "tone": "good"},
+            {"stage": "proposal_ready", "label": "Proposal Generated", "count": 15, "tone": "brass"},
+            {"stage": "submitted", "label": "Submitted", "count": 8, "tone": "warn"},
+            {"stage": "awarded", "label": "Awarded", "count": 3, "tone": "good"},
+        ],
+        "conversion_rate": 6.4,
+    }
+
+
+@app.get("/api/activity")
+def activity() -> dict[str, Any]:
+    return {
+        "events": [
+            {
+                "id": "evt-1",
+                "kind": "opportunity_detected",
+                "title": "New opportunity detected",
+                "detail": "AI Development Services — Department of Defense",
+                "when": "2 minutes ago",
+            },
+            {
+                "id": "evt-2",
+                "kind": "qualified",
+                "title": "Qualification analysis completed",
+                "detail": "Cybersecurity Consulting — DHS marked as Qualified",
+                "when": "15 minutes ago",
+            },
+            {
+                "id": "evt-3",
+                "kind": "proposal_generated",
+                "title": "Proposal generated",
+                "detail": "Data Analytics Platform — EPA capability statement created",
+                "when": "1 hour ago",
+            },
+            {
+                "id": "evt-4",
+                "kind": "agent_processed",
+                "title": "AI Agent processed opportunity",
+                "detail": "Deep-Dive Scraper extracted details from 3 new opportunities",
+                "when": "2 hours ago",
+            },
+            {
+                "id": "evt-5",
+                "kind": "manual_review",
+                "title": "Manual review required",
+                "detail": "Cloud Migration Services — VA needs human evaluation",
+                "when": "3 hours ago",
+            },
+            {
+                "id": "evt-6",
+                "kind": "submitted",
+                "title": "Proposal submitted",
+                "detail": "Software Development — NASA proposal successfully submitted",
+                "when": "5 hours ago",
+            },
+        ]
+    }
+
+
+# ---------- chat assistant ----------
+
+class ChatMsg(BaseModel):
+    role: str
+    content: str
+
+
+class ChatIn(BaseModel):
+    messages: list[ChatMsg]
+
+
+def _route_hint(text: str) -> str | None:
+    t = text.lower()
+    if any(k in t for k in ["pipeline", "stage", "kanban"]):
+        return "Take me to → /pipeline"
+    if any(k in t for k in ["agent", "scraper", "writer", "coordinator"]):
+        return "Take me to → /agents"
+    if any(k in t for k in ["analytic", "trend", "metric", "win rate"]):
+        return "Take me to → /analytics"
+    if any(k in t for k in ["add", "new opportunity", "submit url"]):
+        return "Take me to → /add-opportunity"
+    if any(k in t for k in ["health", "uptime", "error"]):
+        return "Take me to → /health"
+    return None
+
+
+@app.post("/api/chat")
+def chat(body: ChatIn) -> dict[str, str]:
+    last_user = next((m.content for m in reversed(body.messages) if m.role == "user"), "")
+    if not last_user:
+        return {"reply": "Ask me anything about your pipeline."}
+
+    hint = _route_hint(last_user)
+    summary_text = (
+        "Here's a quick read on your pipeline:\n\n"
+        "• 47 total opportunities, 23 qualified (52% qualification rate)\n"
+        "• $2.5M total pipeline value (+32% MoM)\n"
+        "• 15 proposals generated, 8 submitted, 3 awarded\n"
+        "• Highest-fit right now: Cloud Migration Services (VA) — score 87, due in 5 days\n"
+        "• Watch-out: Data Analytics Platform (DOE) closes in 3 days — confirm staffing"
+    )
+
+    lower = last_user.lower()
+    if "summarize" in lower or "summary" in lower or "pipeline" in lower:
+        reply = summary_text
+    elif "prioritize" in lower or "priority" in lower or "this week" in lower:
+        reply = (
+            "Three to prioritize this week:\n\n"
+            "1. Cloud Migration Services (VA) — score 87, SDVOSB set-aside, due in 5 days\n"
+            "2. DevSecOps Platform (USAF) — score 82, due in 8 days\n"
+            "3. Data Analytics Platform (DOE) — score 71, due in 3 days — tight timeline"
+        )
+    elif "blocking" in lower or "blocked" in lower:
+        reply = (
+            "Two drafts are blocked:\n\n"
+            "• Cybersecurity A&A — 3 [NEEDS HUMAN INPUT] flags on pricing and CMMC certs\n"
+            "• Cloud Migration — past-performance citations not yet approved in the vault"
+        )
+    elif "capability statement" in lower or "draft" in lower:
+        reply = (
+            "Draft outline (you'll edit + approve before anything is final):\n\n"
+            "• Corporate overview & UEI/CAGE\n"
+            "• Core competencies (cloud, DevSecOps, cyber)\n"
+            "• Differentiators (SDVOSB, CMMC L2, FedRAMP)\n"
+            "• Past performance — pull 3 from approved vault\n"
+            "• NAICS codes & contact\n\n"
+            "Want me to pre-fill from your vault?"
+        )
+    else:
+        reply = (
+            f"I heard: “{last_user}”.\n\n"
+            "In demo mode I can summarize the pipeline, suggest priorities, surface "
+            "blocked drafts, or draft a capability statement. Once the real backend is "
+            "wired up, I'll have full read/write access to your opportunities."
+        )
+
+    if hint:
+        reply = f"{reply}\n\n{hint}"
+    return {"reply": reply}
