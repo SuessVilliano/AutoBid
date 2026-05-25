@@ -191,29 +191,21 @@ function LoginInner() {
             </div>
           )}
 
-          <div className="my-6 flex items-center gap-3 text-xs font-mono text-ink-faint">
-            <div className="flex-1 h-px bg-line" />
-            <span>{supabaseEnabled ? "having trouble?" : "or"}</span>
-            <div className="flex-1 h-px bg-line" />
-          </div>
-
-          {supabaseEnabled ? (
-            <div className="text-[11px] font-mono text-ink-faint leading-relaxed space-y-1.5">
-              <p>If the magic link doesn't arrive:</p>
-              <ul className="list-disc list-inside space-y-1">
-                <li>Check your spam folder</li>
-                <li>Make sure <code className="text-ink">{typeof window !== "undefined" ? window.location.origin : ""}/auth/callback</code> is in Supabase → Authentication → URL Configuration → Redirect URLs</li>
-                <li>Supabase free-tier emails are rate-limited to 3/hour</li>
-              </ul>
-            </div>
-          ) : (
-            <button
-              onClick={continueDemo}
-              disabled={busy}
-              className="w-full flex items-center justify-center gap-2 border border-line bg-card py-3 rounded-sm font-medium hover:border-ink">
-              <Sparkles size={14} className="text-brass" /> Continue as LIV8 demo
-              <span className="text-[10px] font-mono text-ink-faint">(browser-only)</span>
-            </button>
+          {!supabaseEnabled && (
+            <>
+              <div className="my-6 flex items-center gap-3 text-xs font-mono text-ink-faint">
+                <div className="flex-1 h-px bg-line" />
+                <span>or</span>
+                <div className="flex-1 h-px bg-line" />
+              </div>
+              <button
+                onClick={continueDemo}
+                disabled={busy}
+                className="w-full flex items-center justify-center gap-2 border border-line bg-card py-3 rounded-sm font-medium hover:border-ink">
+                <Sparkles size={14} className="text-brass" /> Continue as LIV8 demo
+                <span className="text-[10px] font-mono text-ink-faint">(browser-only)</span>
+              </button>
+            </>
           )}
 
           <p className="mt-6 text-[11px] font-mono text-ink-faint text-center">
