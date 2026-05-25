@@ -1,7 +1,7 @@
 "use client";
 import clsx from "clsx";
 import {
-  Activity, BarChart3, Bot, Building2, ChevronDown, FileStack, Gauge, Inbox,
+  Activity, BarChart3, Bot, Building2, ChevronDown, Coins, FileStack, Gauge, Inbox,
   LayoutList, LogOut, Menu, Plus, PlusCircle, Settings, Vault, X,
 } from "lucide-react";
 import Link from "next/link";
@@ -15,7 +15,8 @@ import type { CompanyProfile } from "@/lib/companyProfile";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge },
-  { href: "/feed", label: "Opportunity Feed", icon: Inbox },
+  { href: "/feed", label: "Contracts (SAM.gov)", icon: Inbox },
+  { href: "/grants", label: "Grants (Grants.gov)", icon: Coins },
   { href: "/pipeline", label: "Pipeline", icon: LayoutList },
   { href: "/add-opportunity", label: "Add Opportunity", icon: PlusCircle },
   { href: "/agents", label: "AI Agents", icon: Bot },

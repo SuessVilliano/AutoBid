@@ -89,7 +89,7 @@ function FeedBody({ company }: { company: CompanyProfile }) {
 
   return (
     <>
-      <PageHeader eyebrow="Pipeline" title="Opportunity Feed">
+      <PageHeader eyebrow="Federal contracts · SAM.gov" title="Contract Feed">
         <div className="flex gap-1 border border-line rounded-sm p-1 bg-card">
           {FILTERS.map((f) => (
             <button key={f.min} onClick={() => setMin(f.min)}
@@ -104,15 +104,15 @@ function FeedBody({ company }: { company: CompanyProfile }) {
       <div className="p-4 sm:p-8">
         <div className="mb-5 flex items-center gap-3 flex-wrap">
           <div className="flex gap-1 border border-line rounded-sm p-1 bg-card">
-            <button onClick={() => setSource("demo")}
-              className={`px-3 py-1 text-xs rounded-sm transition-colors ${
-                source === "demo" ? "bg-ink text-paper" : "text-ink-soft hover:text-ink"}`}>
-              Demo feed
-            </button>
             <button onClick={() => setSource("sam")}
               className={`px-3 py-1 text-xs rounded-sm transition-colors ${
                 source === "sam" ? "bg-ink text-paper" : "text-ink-soft hover:text-ink"}`}>
               SAM.gov (live)
+            </button>
+            <button onClick={() => setSource("demo")}
+              className={`px-3 py-1 text-xs rounded-sm transition-colors ${
+                source === "demo" ? "bg-ink text-paper" : "text-ink-soft hover:text-ink"}`}>
+              Demo
             </button>
           </div>
 
@@ -154,7 +154,7 @@ function FeedBody({ company }: { company: CompanyProfile }) {
         {loading && (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-ink-soft text-sm mb-2">
-              <Loader2 className="animate-spin" size={14} /> Loading {source === "sam" ? "SAM.gov" : "demo"} opportunities…
+              <Loader2 className="animate-spin" size={14} /> Loading {source === "sam" ? "SAM.gov" : "demo"} contracts…
             </div>
             {[0, 1, 2, 3, 4].map((i) => <SkeletonRow key={i} />)}
           </div>
@@ -162,13 +162,13 @@ function FeedBody({ company }: { company: CompanyProfile }) {
         {err && <p className="text-bad text-sm font-mono">{err}</p>}
         {!loading && !err && filtered.length === 0 && items.length > 0 && (
           <Notice title="Nothing matches your profile"
-            body="Try unchecking 'Match my profile' to see all opportunities, or add more NAICS codes in Settings." />
+            body="Try unchecking 'Match my profile' to see all contracts, or add more NAICS codes in Settings." />
         )}
         {!loading && !err && items.length === 0 && (
-          <Notice title="Nothing scored yet"
+          <Notice title="Nothing in the feed"
             body={source === "sam"
-              ? "SAM.gov returned no opportunities for the last 30 days matching your filters. Try widening the date range or removing the profile filter."
-              : "Demo feed empty — switch to 'SAM.gov (live)' to pull real opportunities."} />
+              ? "SAM.gov returned no contracts for the last 30 days matching your NAICS. Try unchecking 'Match my profile' or adding more codes."
+              : "Demo feed empty — switch to 'SAM.gov (live)' to pull real contracts."} />
         )}
 
         <ul className="space-y-3">

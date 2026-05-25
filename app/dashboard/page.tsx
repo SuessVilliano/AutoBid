@@ -99,7 +99,7 @@ function DashboardBody() {
             <ol className="text-sm text-ink-soft list-decimal list-inside space-y-1.5 mb-4">
               <li><Link href="/settings" className="text-brass hover:text-ink">Fill in your company profile</Link> — name, websites, NAICS codes</li>
               <li><Link href="/vault" className="text-brass hover:text-ink">Upload (or AI-draft) your capability statement</Link> in the vault</li>
-              <li><Link href="/feed" className="text-brass hover:text-ink">Browse the SAM.gov feed</Link> — opportunities are filtered to your NAICS</li>
+              <li>Browse opportunities — <Link href="/feed" className="text-brass hover:text-ink">Contracts (SAM.gov)</Link> filtered to your NAICS, or <Link href="/grants" className="text-brass hover:text-ink">Grants (Grants.gov)</Link> keyword-searched from your profile</li>
             </ol>
             <p className="text-[11px] font-mono text-ink-faint">
               Counters below will populate as you move opportunities through your pipeline.
@@ -165,11 +165,11 @@ function DashboardBody() {
                 title="Add opportunity"
                 caption="Manually add a new contract opportunity" />
               <QuickAction href="/feed" icon={<Search size={16} />}
-                title="Search SAM.gov"
-                caption="Search for new opportunities" />
-              <QuickAction href="/analytics" icon={<FileText size={16} />}
-                title="Generate report"
-                caption="Create pipeline summary report" />
+                title="Browse contracts"
+                caption="Live SAM.gov feed filtered to your NAICS" />
+              <QuickAction href="/grants" icon={<FileText size={16} />}
+                title="Browse grants"
+                caption="Live Grants.gov feed by keyword" />
               <QuickAction href="/agents" icon={<Bot size={16} />}
                 title="Run AI analysis"
                 caption="Trigger qualification analysis" />
