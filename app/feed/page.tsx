@@ -1,11 +1,14 @@
 "use client";
-import { ArrowUpRight, Clock, Loader2, ShieldCheck } from "lucide-react";
+import { ArrowUpRight, Clock, Loader2, ShieldCheck, Target } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeader, Notice } from "@/components/PageHeader";
+import { AuthGate } from "@/components/AuthGate";
 import { ScoreDial } from "@/components/ScoreDial";
-import { Badge, Button } from "@/components/ui/primitives";
+import { SkeletonRow } from "@/components/Skeleton";
+import { Badge } from "@/components/ui/primitives";
 import { api, COMPANY_ID } from "@/lib/api";
+import { enabledNaics, type CompanyProfile } from "@/lib/companyProfile";
 import { daysLeft, fmtDate } from "@/lib/format";
 import type { FeedItem } from "@/lib/types";
 
@@ -16,13 +19,21 @@ const FILTERS = [
 ];
 
 export default function FeedPage() {
+  return (
+    <AuthGate>
+      {({ company }) => <FeedBody company={company} />}
+    </AuthGate>
+  );
+}
+
+function FeedBody({ company }: { company: CompanyProfile }) {
   const [items, setItems] = useState<FeedItem[]>([]);
   const [min, setMin] = useState(0);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [matchProfile, setMatchProfile] = useState(true);
 
   useEffect(() => {
-    if (!COMPANY_ID) { setLoading(false); return; }
     setLoading(true);
     api.feed(COMPANY_ID, min)
       .then((r) => setItems(r.items))
@@ -30,15 +41,14 @@ export default function FeedPage() {
       .finally(() => setLoading(false));
   }, [min]);
 
-  if (!COMPANY_ID) {
-    return (
-      <>
-        <PageHeader eyebrow="Pipeline" title="Opportunity Feed" />
-        <Notice title="Set a company id"
-          body="Add NEXT_PUBLIC_COMPANY_ID to .env.local (the UUID of your row in the companies table) so the feed knows which profile to score against." />
-      </>
-    );
-  }
+  const myCodes = useMemo(() => enabledNaics(company), [company]);
+
+  const filtered = useMemo(() => {
+    if (!matchProfile || myCodes.length === 0) return items;
+    return items.filter((o) => o.naics && myCodes.includes(o.naics));
+  }, [items, matchProfile, myCodes]);
+
+  const hiddenCount = items.length - filtered.length;
 
   return (
     <>
@@ -54,36 +64,72 @@ export default function FeedPage() {
         </div>
       </PageHeader>
 
-      <div className="p-8">
+      <div className="p-4 sm:p-8">
+        <div className="mb-5 flex items-center gap-3 flex-wrap">
+          <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={matchProfile}
+              onChange={(e) => setMatchProfile(e.target.checked)}
+              className="accent-ink"
+            />
+            <Target size={13} className="text-brass" />
+            Match my profile ({myCodes.length} NAICS)
+          </label>
+          {matchProfile && hiddenCount > 0 && (
+            <span className="text-xs font-mono text-ink-faint">
+              {hiddenCount} hidden by profile filter
+            </span>
+          )}
+          {myCodes.length === 0 && (
+            <Link href="/settings"
+              className="text-xs font-mono text-brass hover:text-ink underline">
+              Set your NAICS codes →
+            </Link>
+          )}
+        </div>
+
         {loading && (
-          <div className="flex items-center gap-2 text-ink-soft text-sm">
-            <Loader2 className="animate-spin" size={16} /> Loading opportunities…
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-ink-soft text-sm mb-2">
+              <Loader2 className="animate-spin" size={14} /> Loading opportunities…
+            </div>
+            {[0, 1, 2, 3, 4].map((i) => <SkeletonRow key={i} />)}
           </div>
         )}
         {err && <p className="text-bad text-sm font-mono">{err}</p>}
+        {!loading && !err && filtered.length === 0 && items.length > 0 && (
+          <Notice title="Nothing matches your profile"
+            body="Try unchecking 'Match my profile' to see all opportunities, or add more NAICS codes in Settings." />
+        )}
         {!loading && !err && items.length === 0 && (
           <Notice title="Nothing scored yet"
-            body="Run the SAM/Grants ingestion and the scoring task in the backend, then refresh. New, unscored items won't appear until they have a score." />
+            body="Run the SAM/Grants ingestion in the backend, then refresh. New, unscored items won't appear until they have a score." />
         )}
 
         <ul className="space-y-3">
-          {items.map((o, i) => {
+          {filtered.map((o, i) => {
             const dl = daysLeft(o.response_deadline);
             const urgent = dl != null && dl <= 7;
+            const matches = !!(o.naics && myCodes.includes(o.naics));
             return (
               <li key={o.id} className="animate-fade-up"
                 style={{ animationDelay: `${Math.min(i * 40, 400)}ms` }}>
                 <Link href={`/opportunity/${o.id}`}
-                  className="group flex items-center gap-5 bg-card border border-line rounded-sm px-5 py-4 hover:border-ink/40 transition-colors shadow-card">
+                  className="group flex items-center gap-3 sm:gap-5 bg-card border border-line rounded-sm px-4 sm:px-5 py-4 hover:border-ink/40 transition-colors shadow-card">
                   <ScoreDial score={o.total_score} />
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       {o.recommended && (
                         <Badge tone="good"><ShieldCheck size={11} /> Recommended</Badge>)}
-                      {o.naics && <Badge>{o.naics}</Badge>}
+                      {o.naics && (
+                        <Badge tone={matches ? "brass" : "ink"}>
+                          {o.naics}{matches && " ✓"}
+                        </Badge>
+                      )}
                       {o.set_aside && <Badge tone="brass">{o.set_aside}</Badge>}
                     </div>
-                    <h3 className="font-display text-lg leading-snug truncate group-hover:text-navy">
+                    <h3 className="font-display text-base sm:text-lg leading-snug truncate group-hover:text-navy">
                       {o.title}
                     </h3>
                     {o.rationale && (
@@ -96,12 +142,12 @@ export default function FeedPage() {
                       <Clock size={13} />
                       {dl == null ? "—" : `${dl}d`}
                     </div>
-                    <div className="text-[11px] text-ink-faint mt-0.5">
+                    <div className="text-[11px] text-ink-faint mt-0.5 hidden sm:block">
                       {fmtDate(o.response_deadline)}
                     </div>
                   </div>
                   <ArrowUpRight size={18}
-                    className="text-ink-faint group-hover:text-ink transition-colors shrink-0" />
+                    className="text-ink-faint group-hover:text-ink transition-colors shrink-0 hidden sm:block" />
                 </Link>
               </li>
             );

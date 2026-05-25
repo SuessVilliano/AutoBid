@@ -64,4 +64,26 @@ export const api = {
 
   exportUrl: (workspaceId: string, proposalId: string) =>
     `${BASE}/workspaces/${workspaceId}/proposals/${proposalId}/export`,
+
+  suggestNaics: (body: { urls: string[]; company_name?: string; description?: string }) =>
+    req<{
+      suggestions: { code: string; label: string; confidence: number; rationale: string }[];
+      errors: string[];
+      source: "anthropic" | "stub";
+      fetched: string[];
+    }>("/suggest-naics", { method: "POST", body: JSON.stringify(body) }),
+
+  generateDoc: (body: { kind: string; profile: unknown }) =>
+    req<{ markdown: string; source: "anthropic" | "stub" }>(
+      "/generate-doc",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  scrape: (url: string) =>
+    req<{
+      url: string;
+      text: string;
+      summary: Record<string, unknown> | null;
+      source: "anthropic" | "raw";
+    }>("/scrape", { method: "POST", body: JSON.stringify({ url }) }),
 };

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Archivo, Fraunces, IBM_Plex_Mono } from "next/font/google";
-import { Sidebar } from "@/components/Sidebar";
-import { ChatAssistant } from "@/components/ChatAssistant";
+import { AppChrome } from "@/components/AppChrome";
 import "./globals.css";
 
 const display = Fraunces({
@@ -20,15 +19,17 @@ export const metadata: Metadata = {
   description: "Government contract bidding & grant submission, human-gated.",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <body className="font-sans antialiased">
-        <div className="flex">
-          <Sidebar />
-          <main className="flex-1 min-w-0">{children}</main>
-        </div>
-        <ChatAssistant />
+        <AppChrome>{children}</AppChrome>
       </body>
     </html>
   );

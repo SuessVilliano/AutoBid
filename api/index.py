@@ -5,8 +5,13 @@ Replace with the real FastAPI app in /autobid/apps/api/ once Postgres,
 Anthropic, OpenAI, and SAM.gov keys are wired up (Celery + weasyprint need
 non-serverless infra).
 """
+import json
 import os
+import re
+import urllib.error
+import urllib.request
 from datetime import date, timedelta
+from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -678,3 +683,338 @@ def chat(body: ChatIn) -> Dict[str, str]:
     if hint:
         reply = f"{reply}\n\n{hint}"
     return {"reply": reply}
+
+
+# ---------- NAICS suggestion from company websites ----------
+
+class _TextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: List[str] = []
+        self._skip = 0
+
+    def handle_starttag(self, tag: str, attrs: Any) -> None:
+        if tag in ("script", "style", "noscript", "svg"):
+            self._skip += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("script", "style", "noscript", "svg") and self._skip > 0:
+            self._skip -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._skip:
+            return
+        s = data.strip()
+        if s:
+            self.parts.append(s)
+
+
+def _fetch_text(url: str, max_chars: int = 8000) -> str:
+    if not re.match(r"^https?://", url):
+        url = "https://" + url
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "AutoBid/0.1 (+https://auto-bid-smoky.vercel.app)",
+        "Accept": "text/html,application/xhtml+xml",
+    })
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        raw = resp.read(200_000).decode("utf-8", errors="ignore")
+    parser = _TextExtractor()
+    try:
+        parser.feed(raw)
+    except Exception:
+        pass
+    text = " ".join(parser.parts)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:max_chars]
+
+
+def _stub_naics_suggestions(websites: List[str]) -> List[Dict[str, Any]]:
+    joined = " ".join(websites).lower()
+    looks_ai = any(k in joined for k in ["ai", "ml", "intelligen"])
+    looks_digital = any(k in joined for k in ["digital", "market", "agency", "media"])
+    base = [
+        {"code": "541613", "label": "Marketing Consulting Services",
+         "confidence": 0.92 if looks_digital else 0.7,
+         "rationale": "Digital marketing strategy and consulting services."},
+        {"code": "541810", "label": "Advertising Agencies",
+         "confidence": 0.85 if looks_digital else 0.55,
+         "rationale": "Creative and paid-media advertising work."},
+        {"code": "541511", "label": "Custom Computer Programming Services",
+         "confidence": 0.88 if looks_ai else 0.75,
+         "rationale": "Custom software and AI-enabled application development."},
+        {"code": "541512", "label": "Computer Systems Design Services",
+         "confidence": 0.82,
+         "rationale": "Systems integration and platform design."},
+        {"code": "541519", "label": "Other Computer Related Services",
+         "confidence": 0.78,
+         "rationale": "Catch-all for IT services not covered elsewhere; common on federal awards."},
+        {"code": "518210", "label": "Data Processing, Hosting, and Related Services",
+         "confidence": 0.7 if looks_ai else 0.55,
+         "rationale": "Hosted AI/data services delivery."},
+        {"code": "541715", "label": "R&D in Physical, Engineering, and Life Sciences",
+         "confidence": 0.65 if looks_ai else 0.4,
+         "rationale": "Applied AI R&D for federal sponsors (DARPA, DoD)."},
+        {"code": "611420", "label": "Computer Training",
+         "confidence": 0.5,
+         "rationale": "AI / digital marketing training and enablement engagements."},
+    ]
+    return sorted(base, key=lambda x: -x["confidence"])
+
+
+class SuggestNaicsIn(BaseModel):
+    urls: List[str]
+    company_name: Optional[str] = None
+    description: Optional[str] = None
+
+
+@app.post("/api/suggest-naics")
+def suggest_naics(body: SuggestNaicsIn) -> Dict[str, Any]:
+    urls = [u for u in body.urls if u and u.strip()]
+    if not urls:
+        raise HTTPException(status_code=400, detail="At least one URL is required")
+
+    fetched: List[Dict[str, str]] = []
+    errors: List[str] = []
+    for u in urls[:4]:
+        try:
+            fetched.append({"url": u, "text": _fetch_text(u)})
+        except (urllib.error.URLError, TimeoutError, ValueError) as e:
+            errors.append(f"{u}: {type(e).__name__}")
+
+    live = _try_naics_anthropic(body.company_name or "", body.description or "", fetched)
+    if live:
+        return {"suggestions": live, "errors": errors, "source": "anthropic", "fetched": [f["url"] for f in fetched]}
+
+    return {
+        "suggestions": _stub_naics_suggestions(urls),
+        "errors": errors,
+        "source": "stub",
+        "fetched": [f["url"] for f in fetched],
+    }
+
+
+def _try_naics_anthropic(name: str, desc: str, fetched: List[Dict[str, str]]) -> Optional[List[Dict[str, Any]]]:
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        return None
+    try:
+        from anthropic import Anthropic
+        model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+        client = Anthropic(api_key=key)
+        context = "\n\n".join(f"=== {f['url']} ===\n{f['text']}" for f in fetched) or "(no fetched content)"
+        prompt = (
+            f"Company name: {name or 'unknown'}\n"
+            f"Self-description: {desc or 'unknown'}\n\n"
+            f"Website content excerpts:\n{context}\n\n"
+            "Return a JSON array of NAICS code suggestions for this company in the U.S. "
+            "federal contracting context. Each item must have keys: code (6-digit string), "
+            "label (official NAICS title), confidence (0-1), rationale (1 sentence). "
+            "Return 5-8 codes, ordered by confidence descending. Output ONLY the JSON array."
+        )
+        resp = client.messages.create(
+            model=model,
+            max_tokens=1500,
+            system="You are a U.S. federal contracting NAICS code expert. Output valid JSON only.",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = "\n".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+        if not match:
+            return None
+        data = json.loads(match.group(0))
+        out: List[Dict[str, Any]] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            code = str(item.get("code", "")).strip()
+            if not re.match(r"^\d{4,6}$", code):
+                continue
+            out.append({
+                "code": code,
+                "label": str(item.get("label", "")).strip(),
+                "confidence": float(item.get("confidence", 0.5)),
+                "rationale": str(item.get("rationale", "")).strip(),
+            })
+        return out or None
+    except Exception:
+        return None
+
+
+# ---------- AI document generation for the vault ----------
+
+DOC_KIND_PROMPTS: Dict[str, str] = {
+    "Capability statement": (
+        "Draft a 1-page federal capability statement in Markdown. Sections: "
+        "Corporate Overview, Core Competencies, Differentiators, Past Performance "
+        "(placeholders), NAICS Codes, Set-Asides, Contact. Mark any unknowns as "
+        "[NEEDS HUMAN INPUT]. Use only what's provided — do not invent numbers, "
+        "UEI/CAGE codes, certifications, or contract values."
+    ),
+    "Past performance": (
+        "Draft a past-performance summary template in Markdown with 3 placeholder "
+        "engagements. Each: client, period, value, scope, results. Mark every "
+        "specific fact as [NEEDS HUMAN INPUT]."
+    ),
+    "Key personnel resumes": (
+        "Draft a key-personnel one-pager template in Markdown for 2 placeholder "
+        "team members. Sections per person: role, clearance, education, "
+        "certifications, relevant experience. All facts marked [NEEDS HUMAN INPUT]."
+    ),
+    "Certifications (8(a)/WOSB/SDVOSB)": (
+        "Draft a certifications register in Markdown listing common federal "
+        "small-business certifications (8(a), WOSB, EDWOSB, HUBZone, SDVOSB, "
+        "VOSB) with a checkbox per item and an [Active / Expired / N/A] field. "
+        "Do not assume which the company holds."
+    ),
+    "Financials": (
+        "Draft a financial overview template in Markdown. Sections: revenue last "
+        "3 FY, profitability, DCAA-compliance status, bonding capacity, banking "
+        "reference. All values [NEEDS HUMAN INPUT]."
+    ),
+    "SAM / registration": (
+        "Draft a SAM.gov registration checklist in Markdown: UEI, CAGE, NAICS "
+        "primary + secondaries, set-asides, POCs, banking info, reps & certs "
+        "(FAR 52.204-26), small-business size status, expiration date. Mark all "
+        "values [NEEDS HUMAN INPUT]."
+    ),
+    "Reusable templates": (
+        "Draft a reusable proposal-language template index in Markdown with "
+        "8-12 commonly-reused blocks (e.g., 'Company Background', 'Quality "
+        "Assurance Approach', 'Risk Management Plan'). For each block, one "
+        "sentence describing when to use it."
+    ),
+}
+
+
+def _stub_doc_markdown(kind: str, profile: Dict[str, Any]) -> str:
+    name = profile.get("name") or "[NEEDS HUMAN INPUT]"
+    email = profile.get("email") or "[NEEDS HUMAN INPUT]"
+    websites = ", ".join(profile.get("websites") or []) or "[NEEDS HUMAN INPUT]"
+    description = profile.get("description") or "[NEEDS HUMAN INPUT]"
+    naics_lines = "\n".join(
+        f"- **{n['code']}** — {n.get('label', '')}"
+        for n in (profile.get("naics") or []) if n.get("on")
+    ) or "- [NEEDS HUMAN INPUT]"
+
+    if kind == "Capability statement":
+        return (
+            f"# {name} — Capability Statement\n\n"
+            f"**Website:** {websites}  \n"
+            f"**Contact:** {email}\n\n"
+            "## Corporate Overview\n"
+            f"{description}\n\n"
+            "**UEI:** [NEEDS HUMAN INPUT]  \n"
+            "**CAGE:** [NEEDS HUMAN INPUT]\n\n"
+            "## Core Competencies\n"
+            "- [NEEDS HUMAN INPUT — list 4-6 core service lines]\n\n"
+            "## Differentiators\n"
+            "- [NEEDS HUMAN INPUT — what makes you the choice?]\n\n"
+            "## Past Performance\n"
+            "1. [NEEDS HUMAN INPUT — client, period, value, outcome]\n"
+            "2. [NEEDS HUMAN INPUT]\n"
+            "3. [NEEDS HUMAN INPUT]\n\n"
+            "## NAICS Codes\n"
+            f"{naics_lines}\n\n"
+            "## Set-Asides\n"
+            "- [NEEDS HUMAN INPUT — 8(a), WOSB, SDVOSB, HUBZone?]\n\n"
+            "## Contact\n"
+            f"- {email}\n"
+        )
+    base = DOC_KIND_PROMPTS.get(kind, "Draft a one-page Markdown document.")
+    return (
+        f"# {kind} — {name}\n\n"
+        f"> **Stub draft.** Wire `ANTHROPIC_API_KEY` (and add `anthropic` to "
+        f"`api/requirements.txt`) for AI-authored drafts.\n\n"
+        f"_Prompt that will be sent to Claude:_\n\n> {base}\n\n"
+        "## Replace this section\n- [NEEDS HUMAN INPUT]\n"
+    )
+
+
+class GenerateDocIn(BaseModel):
+    kind: str
+    profile: Dict[str, Any]
+
+
+@app.post("/api/generate-doc")
+def generate_doc(body: GenerateDocIn) -> Dict[str, Any]:
+    if body.kind not in DOC_KIND_PROMPTS:
+        raise HTTPException(status_code=400, detail=f"Unknown doc kind: {body.kind}")
+    live = _try_doc_anthropic(body.kind, body.profile)
+    if live:
+        return {"markdown": live, "source": "anthropic"}
+    return {"markdown": _stub_doc_markdown(body.kind, body.profile), "source": "stub"}
+
+
+def _try_doc_anthropic(kind: str, profile: Dict[str, Any]) -> Optional[str]:
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        return None
+    try:
+        from anthropic import Anthropic
+        model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+        client = Anthropic(api_key=key)
+        profile_json = json.dumps(profile, indent=2)
+        prompt = (
+            f"{DOC_KIND_PROMPTS[kind]}\n\n"
+            f"Company profile (JSON):\n```json\n{profile_json}\n```\n\n"
+            "Output ONLY the Markdown document — no preamble, no code fences around the result."
+        )
+        resp = client.messages.create(
+            model=model,
+            max_tokens=2500,
+            system="You draft government-contracting documents. Mark unknowns as [NEEDS HUMAN INPUT]. Never invent numbers, certifications, UEI/CAGE, or contract values.",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = "\n".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+        return text or None
+    except Exception:
+        return None
+
+
+# ---------- on-demand URL scrape (Firecrawl-style, stdlib) ----------
+
+class ScrapeIn(BaseModel):
+    url: str
+
+
+@app.post("/api/scrape")
+def scrape_url(body: ScrapeIn) -> Dict[str, Any]:
+    try:
+        text = _fetch_text(body.url, max_chars=20000)
+    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        raise HTTPException(status_code=502, detail=f"Could not fetch {body.url}: {type(e).__name__}")
+    summary = _try_scrape_anthropic(body.url, text)
+    return {"url": body.url, "text": text, "summary": summary, "source": "anthropic" if summary else "raw"}
+
+
+def _try_scrape_anthropic(url: str, text: str) -> Optional[Dict[str, Any]]:
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key or not text:
+        return None
+    try:
+        from anthropic import Anthropic
+        model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+        client = Anthropic(api_key=key)
+        prompt = (
+            f"Page URL: {url}\n\nPage text (truncated):\n{text[:12000]}\n\n"
+            "If this looks like a federal contracting opportunity or grant, "
+            "extract a JSON object with keys: title, agency, naics (string or null), "
+            "set_aside (string or null), value (number or null), response_deadline "
+            "(YYYY-MM-DD or null), description, contact (string or null). "
+            "If this is NOT an opportunity, return {\"is_opportunity\": false}. "
+            "Output ONLY JSON."
+        )
+        resp = client.messages.create(
+            model=model,
+            max_tokens=900,
+            system="You extract structured opportunity data from federal contracting pages. Output valid JSON only.",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        out = "\n".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+        match = re.search(r"\{.*\}", out, re.DOTALL)
+        if not match:
+            return None
+        return json.loads(match.group(0))
+    except Exception:
+        return None
+
