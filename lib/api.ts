@@ -64,4 +64,48 @@ export const api = {
 
   exportUrl: (workspaceId: string, proposalId: string) =>
     `${BASE}/workspaces/${workspaceId}/proposals/${proposalId}/export`,
+
+  suggestNaics: (body: { urls: string[]; company_name?: string; description?: string }) =>
+    req<{
+      suggestions: { code: string; label: string; confidence: number; rationale: string }[];
+      errors: string[];
+      source: "anthropic" | "stub";
+      fetched: string[];
+    }>("/suggest-naics", { method: "POST", body: JSON.stringify(body) }),
+
+  generateDoc: (body: { kind: string; profile: unknown }) =>
+    req<{ markdown: string; source: "anthropic" | "stub" }>(
+      "/generate-doc",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  scrape: (url: string) =>
+    req<{
+      url: string;
+      text: string;
+      summary: Record<string, unknown> | null;
+      source: "anthropic" | "raw";
+    }>("/scrape", { method: "POST", body: JSON.stringify({ url }) }),
+
+  samSearch: (body: { naics?: string[]; keyword?: string; limit?: number; posted_from?: string; posted_to?: string }) =>
+    req<{
+      items: {
+        id: string;
+        title: string;
+        agency: string;
+        naics: string | null;
+        set_aside: string | null;
+        value: number | null;
+        response_deadline: string | null;
+        url: string | null;
+        type: string;
+        posted_date: string | null;
+        description: string | null;
+        raw_source: string;
+      }[];
+      total_records?: number;
+      source: "sam" | "stub";
+      error?: string;
+      naics_filter?: string[];
+    }>("/sam-search", { method: "POST", body: JSON.stringify(body) }),
 };
