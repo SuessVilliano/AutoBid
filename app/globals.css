@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --paper: #f4f0e7;
+  --card: #fcfaf4;
+  --ink: #16130f;
+  --ink-soft: #4a453c;
+  --ink-faint: #8b8475;
+  --line: #e2dccd;
+  --brass: #a8771a;
+  --navy: #1d2b3a;
+  --good: #2f7a4f;
+  --warn: #b9831a;
+  --bad: #a83a36;
+}
+
+html,
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-feature-settings: "ss01", "cv01";
+}
+
+/* faint parchment grain + a hairline ruling, for atmosphere */
+body {
+  background-image:
+    radial-gradient(transparent 0, transparent 1px, rgba(22, 19, 15, 0.012) 1px),
+    linear-gradient(180deg, rgba(168, 119, 26, 0.04), transparent 220px);
+  background-size: 3px 3px, 100% 100%;
+}
+
+::selection { background: rgba(168, 119, 26, 0.22); }
+
+/* tabular numerals for scores/codes */
+.tnum { font-variant-numeric: tabular-nums; }
+
+.rule-top { border-top: 3px double var(--ink); }
