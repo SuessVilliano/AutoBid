@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { AuthGate } from "@/components/AuthGate";
 import { Badge, Button, Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api";
-import { updateActiveCompany, type User } from "@/lib/auth";
+import { updateCompany, type AppUser } from "@/lib/data";
 import type { CompanyProfile, NaicsCode } from "@/lib/companyProfile";
 
 type TabKey = "general" | "agents" | "notifications" | "integrations" | "security" | "api";
@@ -52,7 +52,7 @@ export default function SettingsPage() {
               </ul>
             </Card>
             <div>
-              {tab === "general" && <GeneralTab user={user} company={company} />}
+              {tab === "general" && <GeneralTab company={company} />}
               {tab === "agents" && <AgentsTab />}
               {tab === "notifications" && <NotificationsTab />}
               {tab === "integrations" && <IntegrationsTab />}
@@ -66,9 +66,10 @@ export default function SettingsPage() {
   );
 }
 
-function GeneralTab({ user, company }: { user: User; company: CompanyProfile }) {
+function GeneralTab({ company }: { company: CompanyProfile }) {
   const [profile, setProfile] = useState<CompanyProfile>(company);
   const [savedAt, setSavedAt] = useState(0);
+  const [saving, setSaving] = useState(false);
   const [websitesInput, setWebsitesInput] = useState(profile.websites.join(", "));
   const [showSuggest, setShowSuggest] = useState(false);
 
@@ -89,13 +90,18 @@ function GeneralTab({ user, company }: { user: User; company: CompanyProfile }) 
     patch({ naics: [...profile.naics, { code, label, on: true }] });
   }
 
-  function save() {
-    const websites = websitesInput.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
-    const next = { ...profile, websites };
-    updateActiveCompany(user, next);
-    setProfile(next);
-    setSavedAt(Date.now());
-    setTimeout(() => setSavedAt(0), 2500);
+  async function save() {
+    setSaving(true);
+    try {
+      const websites = websitesInput.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
+      const next = { ...profile, websites };
+      const saved = await updateCompany(profile.id, next);
+      setProfile(saved);
+      setSavedAt(Date.now());
+      setTimeout(() => setSavedAt(0), 2500);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -181,7 +187,10 @@ function GeneralTab({ user, company }: { user: User; company: CompanyProfile }) 
 
       <div className="flex items-center justify-end gap-3 flex-wrap">
         {savedAt > 0 && <span className="text-good text-sm font-mono">Saved.</span>}
-        <Button onClick={save}><Save size={14} /> Save changes</Button>
+        <Button onClick={save} disabled={saving}>
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+          {saving ? "Saving…" : "Save changes"}
+        </Button>
       </div>
 
       {showSuggest && (

@@ -1,5 +1,3 @@
-"use client";
-
 export type NaicsCode = {
   code: string;
   label: string;

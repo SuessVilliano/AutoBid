@@ -8,8 +8,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
-  activeCompany, addCompany, currentUser, logout, setActiveCompany, type User,
-} from "@/lib/auth";
+  createCompany, dataMode, getActiveCompany, getAllCompanies, getCurrentUser,
+  setActiveCompanyId, signOut, type AppUser,
+} from "@/lib/data";
+import type { CompanyProfile } from "@/lib/companyProfile";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge },
@@ -96,6 +98,9 @@ export function Sidebar() {
             Drafts prepared automatically. Nothing certified, priced, or submitted
             without your approval.
           </p>
+          <p className="px-2 mt-3 text-[10px] font-mono text-ink-faint uppercase tracking-wider">
+            {dataMode === "supabase" ? "Supabase · cloud" : "Demo · browser-only"}
+          </p>
         </div>
       </aside>
     </>
@@ -104,13 +109,20 @@ export function Sidebar() {
 
 function CompanySwitcher() {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
+  const [companies, setCompanies] = useState<CompanyProfile[]>([]);
+  const [active, setActive] = useState<CompanyProfile | null>(null);
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const popRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => setUser(currentUser()), []);
+  useEffect(() => {
+    (async () => {
+      const [all, act] = await Promise.all([getAllCompanies(), getActiveCompany()]);
+      setCompanies(all);
+      setActive(act);
+    })();
+  }, []);
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -120,9 +132,6 @@ function CompanySwitcher() {
     return () => document.removeEventListener("mousedown", onClick);
   }, [open]);
 
-  if (!user) return null;
-
-  const active = activeCompany(user);
   if (!active) return null;
 
   return (
@@ -141,21 +150,23 @@ function CompanySwitcher() {
       {open && (
         <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-line rounded-sm shadow-card z-50 animate-fade-in">
           <ul className="max-h-64 overflow-y-auto">
-            {user.companies.map((c) => (
+            {companies.map((c) => (
               <li key={c.id}>
                 <button
                   onClick={() => {
-                    setUser(setActiveCompany(user, c.id));
+                    setActiveCompanyId(c.id);
+                    setActive(c);
                     setOpen(false);
                     router.refresh();
+                    window.location.reload();
                   }}
                   className={clsx(
                     "w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-paper",
-                    c.id === user.activeCompanyId && "bg-paper font-medium",
+                    c.id === active.id && "bg-paper font-medium",
                   )}>
                   <Building2 size={12} className="text-ink-faint" />
                   <span className="flex-1 truncate">{c.name}</span>
-                  {c.id === user.activeCompanyId && <span className="text-[10px] font-mono text-good">active</span>}
+                  {c.id === active.id && <span className="text-[10px] font-mono text-good">active</span>}
                 </button>
               </li>
             ))}
@@ -172,13 +183,17 @@ function CompanySwitcher() {
                 />
                 <div className="flex gap-1.5">
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       const name = newName.trim();
                       if (!name) return;
-                      setUser(addCompany(user, name));
+                      const c = await createCompany(name);
+                      setCompanies((cs) => [...cs, c]);
+                      setActive(c);
+                      setActiveCompanyId(c.id);
                       setNewName("");
                       setAdding(false);
                       router.refresh();
+                      window.location.reload();
                     }}
                     className="flex-1 px-2 py-1 text-xs bg-ink text-paper rounded-sm">
                     Add
@@ -206,8 +221,8 @@ function CompanySwitcher() {
 
 function UserMenu() {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
-  useEffect(() => setUser(currentUser()), []);
+  const [user, setUser] = useState<AppUser | null>(null);
+  useEffect(() => { getCurrentUser().then(setUser); }, []);
 
   if (!user) return null;
 
@@ -223,10 +238,10 @@ function UserMenu() {
         </div>
         <button
           aria-label="Sign out"
-          onClick={() => {
-            logout();
+          onClick={async () => {
+            await signOut();
             router.push("/");
-            router.refresh();
+            window.location.reload();
           }}
           className="w-7 h-7 rounded-sm hover:bg-paper flex items-center justify-center text-ink-faint hover:text-ink">
           <LogOut size={14} />

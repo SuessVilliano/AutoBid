@@ -6,13 +6,13 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { currentUser } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/data";
 
 export default function Landing() {
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
 
   useEffect(() => {
-    setLoggedIn(!!currentUser());
+    getCurrentUser().then((u) => setLoggedIn(!!u));
   }, []);
 
   return (

@@ -9,6 +9,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import date, timedelta
 from html.parser import HTMLParser
@@ -985,6 +986,114 @@ def scrape_url(body: ScrapeIn) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail=f"Could not fetch {body.url}: {type(e).__name__}")
     summary = _try_scrape_anthropic(body.url, text)
     return {"url": body.url, "text": text, "summary": summary, "source": "anthropic" if summary else "raw"}
+
+
+# ---------- SAM.gov opportunity search ----------
+
+class SamSearchIn(BaseModel):
+    naics: List[str] = []
+    posted_from: Optional[str] = None  # mm/dd/yyyy
+    posted_to: Optional[str] = None
+    limit: int = 50
+    keyword: Optional[str] = None
+
+
+def _sam_date(days_ago: int) -> str:
+    d = date.today() - timedelta(days=days_ago)
+    return d.strftime("%m/%d/%Y")
+
+
+@app.post("/api/sam-search")
+def sam_search(body: SamSearchIn) -> Dict[str, Any]:
+    key = os.environ.get("SAM_GOV_API_KEY") or os.environ.get("SAM_API_KEY")
+    if not key:
+        return {
+            "items": [],
+            "source": "stub",
+            "error": "SAM_GOV_API_KEY is not set in Vercel environment variables.",
+        }
+
+    params: List[tuple[str, str]] = [
+        ("api_key", key),
+        ("limit", str(min(max(body.limit, 1), 100))),
+        ("postedFrom", body.posted_from or _sam_date(30)),
+        ("postedTo", body.posted_to or _sam_date(0)),
+    ]
+    if body.naics:
+        params.append(("ncode", ",".join(body.naics)))
+    if body.keyword:
+        params.append(("q", body.keyword))
+
+    qs = urllib.parse.urlencode(params)
+    url = f"https://api.sam.gov/opportunities/v2/search?{qs}"
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read().decode("utf-8", errors="ignore")
+        data = json.loads(raw)
+    except urllib.error.HTTPError as e:
+        body_text = ""
+        try:
+            body_text = e.read().decode("utf-8", errors="ignore")[:400]
+        except Exception:
+            pass
+        return {"items": [], "source": "sam", "error": f"SAM {e.code}: {body_text or e.reason}"}
+    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        return {"items": [], "source": "sam", "error": f"{type(e).__name__}: {e}"}
+
+    opps = data.get("opportunitiesData") or data.get("_embedded", {}).get("opportunity") or []
+    items: List[Dict[str, Any]] = []
+    for o in opps:
+        items.append(_sam_to_item(o))
+    return {
+        "items": items,
+        "total_records": data.get("totalRecords", len(items)),
+        "source": "sam",
+        "naics_filter": body.naics,
+    }
+
+
+def _sam_to_item(o: Dict[str, Any]) -> Dict[str, Any]:
+    naics_list = o.get("naicsCode") or o.get("naicsCodes") or []
+    if isinstance(naics_list, list) and naics_list:
+        first = naics_list[0]
+        naics_code = first.get("code") if isinstance(first, dict) else str(first)
+    elif isinstance(naics_list, dict):
+        naics_code = naics_list.get("code")
+    else:
+        naics_code = str(naics_list) if naics_list else None
+
+    setaside = None
+    sa = o.get("typeOfSetAsideDescription") or o.get("typeOfSetAside")
+    if sa and sa != "None":
+        setaside = sa
+
+    award_val = None
+    award = o.get("award") or {}
+    if isinstance(award, dict):
+        try:
+            award_val = int(float(award.get("amount") or 0)) or None
+        except (TypeError, ValueError):
+            award_val = None
+
+    deadline = o.get("responseDeadLine") or o.get("responseDeadline")
+    if deadline and isinstance(deadline, str) and "T" in deadline:
+        deadline = deadline.split("T")[0]
+
+    return {
+        "id": o.get("noticeId") or o.get("id") or o.get("solicitationNumber"),
+        "title": o.get("title") or o.get("subject") or "(no title)",
+        "agency": (o.get("fullParentPathName") or o.get("department") or "").split(".")[0],
+        "naics": naics_code,
+        "set_aside": setaside,
+        "value": award_val,
+        "response_deadline": deadline,
+        "url": o.get("uiLink") or o.get("link") or None,
+        "type": o.get("type") or "Contract",
+        "posted_date": o.get("postedDate"),
+        "description": o.get("description"),
+        "raw_source": "sam.gov",
+    }
 
 
 def _try_scrape_anthropic(url: str, text: str) -> Optional[Dict[str, Any]]:

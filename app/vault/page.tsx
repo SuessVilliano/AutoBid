@@ -11,9 +11,10 @@ import { Badge, Button, Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api";
 import type { CompanyProfile } from "@/lib/companyProfile";
 import {
-  DOC_KINDS, docsForKind, fileToBase64, genId, loadDocs, removeDoc,
-  upsertDoc, type VaultDoc,
-} from "@/lib/vault";
+  createVaultDoc, dataMode, deleteVaultDoc, listVaultDocs, updateVaultDoc,
+  vaultFileUrl,
+} from "@/lib/data";
+import { DOC_KINDS, fileToBase64, fmtFileSize, type VaultDoc } from "@/lib/vault";
 
 export default function VaultPage() {
   return (
@@ -25,11 +26,17 @@ export default function VaultPage() {
 
 function VaultBody({ company }: { company: CompanyProfile }) {
   const [docs, setDocs] = useState<VaultDoc[]>([]);
+  const [loading, setLoading] = useState(true);
   const [openKind, setOpenKind] = useState<string | null>(null);
 
-  useEffect(() => { setDocs(loadDocs()); }, []);
+  useEffect(() => {
+    listVaultDocs(company.id).then((d) => {
+      setDocs(d);
+      setLoading(false);
+    });
+  }, [company.id]);
 
-  function refresh() { setDocs(loadDocs()); }
+  async function refresh() { setDocs(await listVaultDocs(company.id)); }
 
   return (
     <>
@@ -47,36 +54,43 @@ function VaultBody({ company }: { company: CompanyProfile }) {
             profile. Mark <strong>approved</strong> when ready — drafts can only
             quote approved blurbs.
           </p>
-          <ul className="space-y-2">
-            {DOC_KINDS.map((kind) => {
-              const inKind = docs.filter((d) => d.kind === kind);
-              const approved = inKind.filter((d) => d.status === "approved").length;
-              return (
-                <li key={kind}>
-                  <button
-                    onClick={() => setOpenKind(kind)}
-                    className="w-full flex items-center gap-3 border border-line rounded-sm px-4 py-3 bg-paper hover:border-ink/40 transition-colors text-left">
-                    <FileText size={16} className="text-ink-faint shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium">{kind}</div>
-                      <div className="text-[11px] font-mono text-ink-faint mt-0.5">
-                        {inKind.length === 0
-                          ? "empty"
-                          : `${inKind.length} doc${inKind.length === 1 ? "" : "s"} · ${approved} approved`}
+          {loading ? (
+            <div className="space-y-2">
+              {DOC_KINDS.map((k) => <div key={k} className="h-14 skeleton" />)}
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {DOC_KINDS.map((kind) => {
+                const inKind = docs.filter((d) => d.kind === kind);
+                const approved = inKind.filter((d) => d.status === "approved").length;
+                return (
+                  <li key={kind}>
+                    <button
+                      onClick={() => setOpenKind(kind)}
+                      className="w-full flex items-center gap-3 border border-line rounded-sm px-4 py-3 bg-paper hover:border-ink/40 transition-colors text-left">
+                      <FileText size={16} className="text-ink-faint shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium">{kind}</div>
+                        <div className="text-[11px] font-mono text-ink-faint mt-0.5">
+                          {inKind.length === 0
+                            ? "empty"
+                            : `${inKind.length} doc${inKind.length === 1 ? "" : "s"} · ${approved} approved`}
+                        </div>
                       </div>
-                    </div>
-                    {inKind.length > 0 && approved > 0 && (
-                      <Badge tone="good"><CheckCircle2 size={10} /> approved</Badge>
-                    )}
-                    <Plus size={14} className="text-ink-faint" />
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+                      {inKind.length > 0 && approved > 0 && (
+                        <Badge tone="good"><CheckCircle2 size={10} /> approved</Badge>
+                      )}
+                      <Plus size={14} className="text-ink-faint" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
           <p className="text-xs text-ink-faint mt-5 font-mono">
-            Files persist in your browser. Wire Supabase Storage + pgvector for
-            production retrieval.
+            {dataMode === "supabase"
+              ? "Files persist in your Supabase Storage bucket (vault/). RLS-scoped to your row."
+              : "Files persist in your browser. Set Supabase env vars to switch to cloud."}
           </p>
         </Card>
 
@@ -123,13 +137,16 @@ function KindModal({ kind, company, onClose, onChanged }: {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const list = docsForKind(kind);
-    setDocs(list);
-    setActiveId(list[0]?.id ?? null);
-  }, [kind]);
+    listVaultDocs(company.id).then((all) => {
+      const list = all.filter((d) => d.kind === kind);
+      setDocs(list);
+      setActiveId(list[0]?.id ?? null);
+    });
+  }, [kind, company.id]);
 
-  function refresh() {
-    const list = docsForKind(kind);
+  async function refresh() {
+    const all = await listVaultDocs(company.id);
+    const list = all.filter((d) => d.kind === kind);
     setDocs(list);
     onChanged();
   }
@@ -138,9 +155,8 @@ function KindModal({ kind, company, onClose, onChanged }: {
     setBusy(true);
     setError(null);
     try {
-      const base64 = await fileToBase64(file);
-      const doc: VaultDoc = {
-        id: genId(),
+      const base64 = dataMode === "demo" ? await fileToBase64(file) : undefined;
+      const doc = await createVaultDoc(company.id, {
         kind,
         title: file.name,
         source: "uploaded",
@@ -149,15 +165,12 @@ function KindModal({ kind, company, onClose, onChanged }: {
         fileType: file.type,
         fileSize: file.size,
         fileBase64: base64,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      upsertDoc(doc);
-      refresh();
+      }, dataMode === "supabase" ? file : undefined);
+      await refresh();
       setActiveId(doc.id);
       setMode("list");
     } catch (e) {
-      setError(String(e));
+      setError(humanError(e));
     } finally {
       setBusy(false);
     }
@@ -168,37 +181,31 @@ function KindModal({ kind, company, onClose, onChanged }: {
     setError(null);
     try {
       const res = await api.generateDoc({ kind, profile: company });
-      const doc: VaultDoc = {
-        id: genId(),
+      const doc = await createVaultDoc(company.id, {
         kind,
         title: `${kind} (AI draft)`,
         source: "generated",
         status: "draft",
         markdown: res.markdown,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      upsertDoc(doc);
-      refresh();
+      });
+      await refresh();
       setActiveId(doc.id);
       setMode("list");
     } catch (e) {
-      setError(String(e));
+      setError(humanError(e));
     } finally {
       setBusy(false);
     }
   }
 
-  function updateDoc(id: string, patch: Partial<VaultDoc>) {
-    const d = docs.find((x) => x.id === id);
-    if (!d) return;
-    upsertDoc({ ...d, ...patch, updatedAt: Date.now() });
-    refresh();
+  async function patchDoc(id: string, patch: Partial<VaultDoc>) {
+    await updateVaultDoc(company.id, id, patch);
+    await refresh();
   }
 
-  function deleteDoc(id: string) {
-    removeDoc(id);
-    refresh();
+  async function removeDoc(id: string) {
+    await deleteVaultDoc(company.id, id);
+    await refresh();
     if (activeId === id) setActiveId(null);
   }
 
@@ -313,8 +320,8 @@ function KindModal({ kind, company, onClose, onChanged }: {
             )}
             {active && (
               <DocEditor doc={active}
-                onChange={(patch) => updateDoc(active.id, patch)}
-                onDelete={() => deleteDoc(active.id)} />
+                onChange={(patch) => patchDoc(active.id, patch)}
+                onDelete={() => removeDoc(active.id)} />
             )}
           </div>
         </div>
@@ -325,6 +332,20 @@ function KindModal({ kind, company, onClose, onChanged }: {
 
 function DocEditor({ doc, onChange, onDelete }:
   { doc: VaultDoc; onChange: (p: Partial<VaultDoc>) => void; onDelete: () => void }) {
+  const [download, setDownload] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (doc.fileBase64 && doc.fileType) {
+      setDownload(`data:${doc.fileType};base64,${doc.fileBase64}`);
+      return;
+    }
+    if (doc.storagePath) {
+      vaultFileUrl(doc.storagePath).then(setDownload);
+      return;
+    }
+    setDownload(null);
+  }, [doc.id, doc.fileBase64, doc.storagePath, doc.fileType]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
@@ -348,23 +369,16 @@ function DocEditor({ doc, onChange, onDelete }:
 
       {doc.source === "uploaded" ? (
         <div className="border border-line rounded-sm p-4 bg-paper">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             <FileText size={14} className="text-brass" />
             <span className="text-sm font-medium">{doc.fileName}</span>
-            <Badge tone="ink">{(doc.fileSize ?? 0) > 1024 * 1024
-              ? `${((doc.fileSize ?? 0) / 1024 / 1024).toFixed(1)} MB`
-              : `${Math.round((doc.fileSize ?? 0) / 1024)} KB`}
-            </Badge>
+            <Badge tone="ink">{fmtFileSize(doc.fileSize)}</Badge>
           </div>
-          <p className="text-xs text-ink-faint">
-            File stored in your browser (base64). Wire Supabase Storage to persist
-            across devices.
-          </p>
-          {doc.fileBase64 && doc.fileType?.startsWith("application/pdf") && (
+          {download && (
             <a
-              href={`data:${doc.fileType};base64,${doc.fileBase64}`}
+              href={download}
               download={doc.fileName}
-              className="inline-block mt-3 text-xs font-mono text-brass hover:text-ink">
+              className="inline-block text-xs font-mono text-brass hover:text-ink">
               Download
             </a>
           )}
@@ -383,4 +397,11 @@ function DocEditor({ doc, onChange, onDelete }:
       </div>
     </div>
   );
+}
+
+function humanError(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object" && "message" in e) return String((e as { message: unknown }).message);
+  return String(e);
 }
