@@ -587,6 +587,8 @@ def _route_hint(text: str) -> Optional[str]:
         return "Take me to → /add-opportunity"
     if any(k in t for k in ["health", "uptime", "error"]):
         return "Take me to → /health"
+    if any(k in t for k in ["sub", "subcontractor", "rolodex", "vendor", "teaming"]):
+        return "Take me to → /subcontractors"
     return None
 
 
@@ -678,3 +680,257 @@ def chat(body: ChatIn) -> Dict[str, str]:
     if hint:
         reply = f"{reply}\n\n{hint}"
     return {"reply": reply}
+
+
+# ---------- subcontractors (Rolodex) ----------
+
+SUBCONTRACTORS: List[Dict[str, Any]] = [
+    {
+        "id": "sub-001",
+        "company": "Beacon Cyber Group",
+        "contact": "Maya Ortiz",
+        "email": "maya@beaconcyber.example",
+        "phone": "+1 703 555 0142",
+        "website": "https://beaconcyber.example",
+        "capabilities": ["cybersecurity", "penetration testing", "CMMC L2 assessment"],
+        "naics": ["541512", "541519"],
+        "certifications": ["SDVOSB", "CMMC L2", "ISO 27001"],
+        "regions": ["VA", "DC", "MD", "nationwide remote"],
+        "past_projects": 14,
+        "rate": "$185/hr blended",
+        "status": "vetted",
+        "preferred": True,
+        "last_contacted": _iso(-9),
+        "notes": "Strong DoD past performance. Cleared engineers available.",
+    },
+    {
+        "id": "sub-002",
+        "company": "RidgePath Cloud Services",
+        "contact": "Jordan Patel",
+        "email": "jordan@ridgepath.example",
+        "phone": "+1 512 555 0177",
+        "website": "https://ridgepath.example",
+        "capabilities": ["AWS migration", "FedRAMP support", "Kubernetes"],
+        "naics": ["541512", "518210"],
+        "certifications": ["8(a)", "FedRAMP Moderate"],
+        "regions": ["TX", "CA", "nationwide"],
+        "past_projects": 22,
+        "rate": "T&M, $165-225/hr",
+        "status": "vetted",
+        "preferred": True,
+        "last_contacted": _iso(-3),
+        "notes": "Prime'd two VA migrations. Likes 60/40 splits.",
+    },
+    {
+        "id": "sub-003",
+        "company": "Northwind Data Analytics",
+        "contact": "Priya Reddy",
+        "email": "priya@northwindanalytics.example",
+        "phone": "+1 415 555 0188",
+        "website": "https://northwindanalytics.example",
+        "capabilities": ["data engineering", "ML platform", "Snowflake", "Databricks"],
+        "naics": ["541511", "541715"],
+        "certifications": ["WOSB"],
+        "regions": ["CA", "WA", "nationwide remote"],
+        "past_projects": 9,
+        "rate": "Fixed-price preferred",
+        "status": "active",
+        "preferred": False,
+        "last_contacted": _iso(-30),
+        "notes": "Great with DoE BPAs. Bandwidth Q2.",
+    },
+    {
+        "id": "sub-004",
+        "company": "Ironwood DevSecOps",
+        "contact": "Sam O'Connell",
+        "email": "sam@ironwooddev.example",
+        "phone": "+1 720 555 0193",
+        "website": "https://ironwooddev.example",
+        "capabilities": ["DevSecOps", "CI/CD", "Platform One", "ATO support"],
+        "naics": ["541512", "541519"],
+        "certifications": ["SDVOSB", "CMMC L2"],
+        "regions": ["CO", "nationwide remote"],
+        "past_projects": 17,
+        "rate": "$210/hr",
+        "status": "vetted",
+        "preferred": True,
+        "last_contacted": _iso(-14),
+        "notes": "Air Force software factory experience. Cleared team lead.",
+    },
+    {
+        "id": "sub-005",
+        "company": "Cascade Translation Services",
+        "contact": "Lin Wang",
+        "email": "lin@cascadetranslation.example",
+        "phone": "+1 206 555 0119",
+        "website": "https://cascadetranslation.example",
+        "capabilities": ["technical translation", "interpretation", "certified translation"],
+        "naics": ["541930"],
+        "certifications": ["8(a)", "WOSB"],
+        "regions": ["nationwide"],
+        "past_projects": 38,
+        "rate": "$0.22/word, $145/hr interp",
+        "status": "active",
+        "preferred": False,
+        "last_contacted": _iso(-60),
+        "notes": "State Dept past performance. 24 languages covered.",
+    },
+    {
+        "id": "sub-006",
+        "company": "Trailhead Help Desk",
+        "contact": "Marcus Reyes",
+        "email": "marcus@trailheadhd.example",
+        "phone": "+1 480 555 0166",
+        "website": "https://trailheadhd.example",
+        "capabilities": ["tier 1-2 help desk", "ITIL", "24x7 NOC"],
+        "naics": ["541513", "561422"],
+        "certifications": ["HUBZone", "8(a)"],
+        "regions": ["AZ", "TX", "nationwide remote"],
+        "past_projects": 11,
+        "rate": "$45/seat/month",
+        "status": "active",
+        "preferred": False,
+        "last_contacted": _iso(-21),
+        "notes": "Solid HUBZone bench. Good for set-aside teaming.",
+    },
+    {
+        "id": "sub-007",
+        "company": "Apex Research Labs",
+        "contact": "Dr. Eli Brandt",
+        "email": "eli@apexresearch.example",
+        "phone": "+1 617 555 0144",
+        "website": "https://apexresearch.example",
+        "capabilities": ["AI/ML research", "computer vision", "SBIR Phase II support"],
+        "naics": ["541715"],
+        "certifications": ["WOSB"],
+        "regions": ["MA", "nationwide remote"],
+        "past_projects": 6,
+        "rate": "Cost-plus preferred",
+        "status": "vetted",
+        "preferred": True,
+        "last_contacted": _iso(-7),
+        "notes": "DARPA portfolio. Two named investigators on staff.",
+    },
+    {
+        "id": "sub-008",
+        "company": "Compass Proposal Writers",
+        "contact": "Hannah Lee",
+        "email": "hannah@compassproposals.example",
+        "phone": "+1 240 555 0102",
+        "website": "https://compassproposals.example",
+        "capabilities": ["proposal writing", "compliance matrix", "graphics"],
+        "naics": ["541611", "541613"],
+        "certifications": ["WOSB"],
+        "regions": ["MD", "DC", "VA", "nationwide remote"],
+        "past_projects": 41,
+        "rate": "$135/hr or fixed-price",
+        "status": "active",
+        "preferred": False,
+        "last_contacted": _iso(-2),
+        "notes": "Surge capacity for tight deadlines.",
+    },
+]
+
+CAPABILITY_INDEX = sorted({c for s in SUBCONTRACTORS for c in s["capabilities"]})
+CERT_INDEX = sorted({c for s in SUBCONTRACTORS for c in s["certifications"]})
+
+
+@app.get("/api/subcontractors")
+def list_subcontractors(
+    q: Optional[str] = None,
+    naics: Optional[str] = None,
+    cert: Optional[str] = None,
+    capability: Optional[str] = None,
+    preferred: Optional[bool] = None,
+) -> Dict[str, Any]:
+    items = list(SUBCONTRACTORS)
+    if q:
+        ql = q.lower()
+        items = [s for s in items
+                 if ql in s["company"].lower()
+                 or ql in s["contact"].lower()
+                 or any(ql in c.lower() for c in s["capabilities"])]
+    if naics:
+        items = [s for s in items if naics in s["naics"]]
+    if cert:
+        items = [s for s in items if cert in s["certifications"]]
+    if capability:
+        cl = capability.lower()
+        items = [s for s in items if any(cl in c.lower() for c in s["capabilities"])]
+    if preferred is True:
+        items = [s for s in items if s["preferred"]]
+    return {
+        "items": items,
+        "facets": {
+            "capabilities": CAPABILITY_INDEX,
+            "certifications": CERT_INDEX,
+            "naics": sorted({n for s in SUBCONTRACTORS for n in s["naics"]}),
+        },
+        "totals": {
+            "count": len(items),
+            "vetted": sum(1 for s in items if s["status"] == "vetted"),
+            "preferred": sum(1 for s in items if s["preferred"]),
+        },
+    }
+
+
+@app.get("/api/subcontractors/{sub_id}")
+def get_subcontractor(sub_id: str) -> Dict[str, Any]:
+    s = next((x for x in SUBCONTRACTORS if x["id"] == sub_id), None)
+    if not s:
+        raise HTTPException(404, "not found")
+    return s
+
+
+class SubcontractorIn(BaseModel):
+    company: str
+    contact: str
+    email: str
+    phone: Optional[str] = None
+    website: Optional[str] = None
+    capabilities: List[str] = []
+    naics: List[str] = []
+    certifications: List[str] = []
+    regions: List[str] = []
+    rate: Optional[str] = None
+    notes: Optional[str] = None
+    preferred: bool = False
+
+
+@app.post("/api/subcontractors")
+def create_subcontractor(body: SubcontractorIn) -> Dict[str, Any]:
+    new_id = f"sub-new-{abs(hash(body.company)) % 10000:04d}"
+    return {
+        "id": new_id,
+        "status": "saved",
+        "message": f"{body.company} added to the Rolodex. Vet before assigning to a bid.",
+    }
+
+
+@app.get("/api/opportunities/{opportunity_id}/suggested-subs")
+def suggested_subs(opportunity_id: str) -> Dict[str, Any]:
+    opp = next((o for o in DEMO_OPPS if o["id"] == opportunity_id), None)
+    if not opp:
+        raise HTTPException(404, "opportunity not found")
+    naics = opp.get("naics")
+    set_aside = (opp.get("set_aside") or "").lower()
+
+    def matches(s: Dict[str, Any]) -> int:
+        score = 0
+        if naics and naics in s["naics"]:
+            score += 5
+        for cert in s["certifications"]:
+            if cert.lower() in set_aside:
+                score += 3
+        if s["preferred"]:
+            score += 1
+        return score
+
+    ranked = sorted(SUBCONTRACTORS, key=matches, reverse=True)
+    top = [s for s in ranked if matches(s) > 0][:4]
+    return {
+        "opportunity_id": opportunity_id,
+        "naics": naics,
+        "set_aside": opp.get("set_aside"),
+        "items": top,
+    }
