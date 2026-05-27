@@ -3,6 +3,7 @@
 import { getBrowserSupabase } from "./supabase/client";
 import { supabaseEnabled } from "./supabase/env";
 import { LIV8_STARTER, type CompanyProfile, type NaicsCode } from "./companyProfile";
+import { STARTER_SUBS, type Subcontractor } from "./subcontractors";
 import type { VaultDoc } from "./vault";
 
 export type AppUser = {
@@ -20,6 +21,7 @@ const LS_ACTIVE_COMPANY = "autobid:activeCompany:v2";
 const LS_DEMO_COMPANIES = "autobid:demoCompanies:v1";
 const LS_DEMO_NAICS = "autobid:demoNaics:v1";
 const LS_DEMO_VAULT = "autobid:demoVault:v1";
+const LS_DEMO_SUBS = "autobid:demoSubs:v1";
 
 type DemoUser = AppUser & { createdAt: number };
 
@@ -497,3 +499,181 @@ type SupaVaultDoc = {
 
 // silence "unused" for the NaicsCode re-export type
 export type { NaicsCode };
+
+// =============================================================================
+// SUBCONTRACTORS (Rolodex)
+// =============================================================================
+
+function rowToSub(r: SupaSubcontractor): Subcontractor {
+  return {
+    id: r.id,
+    companyId: r.company_id,
+    name: r.name,
+    contactName: r.contact_name,
+    email: r.email,
+    phone: r.phone ?? undefined,
+    website: r.website ?? undefined,
+    capabilities: r.capabilities ?? [],
+    naics: r.naics ?? [],
+    certifications: r.certifications ?? [],
+    regions: r.regions ?? [],
+    pastProjects: r.past_projects ?? undefined,
+    rate: r.rate ?? undefined,
+    status: r.status,
+    preferred: r.preferred,
+    notes: r.notes ?? undefined,
+    lastContacted: r.last_contacted ? new Date(r.last_contacted).getTime() : undefined,
+    createdAt: new Date(r.created_at).getTime(),
+    updatedAt: new Date(r.updated_at).getTime(),
+  };
+}
+
+function localSeed(companyId: string): Subcontractor[] {
+  const now = Date.now();
+  return STARTER_SUBS.map((s, i) => ({
+    ...s,
+    id: `sub-seed-${i + 1}-${companyId.slice(0, 6)}`,
+    companyId,
+    createdAt: now,
+    updatedAt: now,
+  }));
+}
+
+export async function listSubcontractors(companyId: string): Promise<Subcontractor[]> {
+  const sb = getBrowserSupabase();
+  if (sb) {
+    const { data, error } = await sb
+      .from("subcontractors")
+      .select("*")
+      .eq("company_id", companyId)
+      .order("preferred", { ascending: false })
+      .order("name", { ascending: true });
+    if (error || !data) return [];
+    return (data as SupaSubcontractor[]).map(rowToSub);
+  }
+  if (typeof window === "undefined") return [];
+  const all = JSON.parse(window.localStorage.getItem(LS_DEMO_SUBS) ?? "{}") as Record<string, Subcontractor[]>;
+  if (!(companyId in all)) {
+    all[companyId] = localSeed(companyId);
+    window.localStorage.setItem(LS_DEMO_SUBS, JSON.stringify(all));
+  }
+  return all[companyId];
+}
+
+export async function createSubcontractor(
+  companyId: string,
+  sub: Omit<Subcontractor, "id" | "companyId" | "createdAt" | "updatedAt">,
+): Promise<Subcontractor> {
+  const sb = getBrowserSupabase();
+  if (sb) {
+    const { data, error } = await sb
+      .from("subcontractors")
+      .insert({
+        company_id: companyId,
+        name: sub.name,
+        contact_name: sub.contactName,
+        email: sub.email,
+        phone: sub.phone ?? null,
+        website: sub.website ?? null,
+        capabilities: sub.capabilities,
+        naics: sub.naics,
+        certifications: sub.certifications,
+        regions: sub.regions,
+        past_projects: sub.pastProjects ?? null,
+        rate: sub.rate ?? null,
+        status: sub.status,
+        preferred: sub.preferred,
+        notes: sub.notes ?? null,
+        last_contacted: sub.lastContacted ? new Date(sub.lastContacted).toISOString() : null,
+      })
+      .select()
+      .single();
+    if (error || !data) throw error ?? new Error("insert failed");
+    return rowToSub(data as SupaSubcontractor);
+  }
+  if (typeof window === "undefined") throw new Error("no window");
+  const all = JSON.parse(window.localStorage.getItem(LS_DEMO_SUBS) ?? "{}") as Record<string, Subcontractor[]>;
+  const out: Subcontractor = {
+    ...sub,
+    id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    companyId,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  all[companyId] = [out, ...(all[companyId] ?? localSeed(companyId))];
+  window.localStorage.setItem(LS_DEMO_SUBS, JSON.stringify(all));
+  return out;
+}
+
+export async function updateSubcontractor(
+  companyId: string,
+  id: string,
+  patch: Partial<Omit<Subcontractor, "id" | "companyId" | "createdAt">>,
+): Promise<void> {
+  const sb = getBrowserSupabase();
+  if (sb) {
+    const fields: Record<string, unknown> = {};
+    if (patch.name !== undefined) fields.name = patch.name;
+    if (patch.contactName !== undefined) fields.contact_name = patch.contactName;
+    if (patch.email !== undefined) fields.email = patch.email;
+    if (patch.phone !== undefined) fields.phone = patch.phone ?? null;
+    if (patch.website !== undefined) fields.website = patch.website ?? null;
+    if (patch.capabilities !== undefined) fields.capabilities = patch.capabilities;
+    if (patch.naics !== undefined) fields.naics = patch.naics;
+    if (patch.certifications !== undefined) fields.certifications = patch.certifications;
+    if (patch.regions !== undefined) fields.regions = patch.regions;
+    if (patch.pastProjects !== undefined) fields.past_projects = patch.pastProjects ?? null;
+    if (patch.rate !== undefined) fields.rate = patch.rate ?? null;
+    if (patch.status !== undefined) fields.status = patch.status;
+    if (patch.preferred !== undefined) fields.preferred = patch.preferred;
+    if (patch.notes !== undefined) fields.notes = patch.notes ?? null;
+    if (patch.lastContacted !== undefined) {
+      fields.last_contacted = patch.lastContacted ? new Date(patch.lastContacted).toISOString() : null;
+    }
+    if (Object.keys(fields).length === 0) return;
+    const { error } = await sb.from("subcontractors").update(fields).eq("id", id);
+    if (error) throw error;
+    return;
+  }
+  if (typeof window === "undefined") return;
+  const all = JSON.parse(window.localStorage.getItem(LS_DEMO_SUBS) ?? "{}") as Record<string, Subcontractor[]>;
+  all[companyId] = (all[companyId] ?? []).map((s) =>
+    s.id === id ? { ...s, ...patch, updatedAt: Date.now() } : s,
+  );
+  window.localStorage.setItem(LS_DEMO_SUBS, JSON.stringify(all));
+}
+
+export async function deleteSubcontractor(companyId: string, id: string): Promise<void> {
+  const sb = getBrowserSupabase();
+  if (sb) {
+    const { error } = await sb.from("subcontractors").delete().eq("id", id);
+    if (error) throw error;
+    return;
+  }
+  if (typeof window === "undefined") return;
+  const all = JSON.parse(window.localStorage.getItem(LS_DEMO_SUBS) ?? "{}") as Record<string, Subcontractor[]>;
+  all[companyId] = (all[companyId] ?? []).filter((s) => s.id !== id);
+  window.localStorage.setItem(LS_DEMO_SUBS, JSON.stringify(all));
+}
+
+type SupaSubcontractor = {
+  id: string;
+  company_id: string;
+  name: string;
+  contact_name: string;
+  email: string;
+  phone: string | null;
+  website: string | null;
+  capabilities: string[] | null;
+  naics: string[] | null;
+  certifications: string[] | null;
+  regions: string[] | null;
+  past_projects: number | null;
+  rate: string | null;
+  status: "vetted" | "active" | "contacted" | "inactive";
+  preferred: boolean;
+  notes: string | null;
+  last_contacted: string | null;
+  created_at: string;
+  updated_at: string;
+};

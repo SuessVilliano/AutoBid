@@ -1,6 +1,7 @@
 "use client";
 import {
-  ArrowUpRight, FileText, Loader2, RefreshCw, ShieldCheck, Sparkles, Workflow,
+  ArrowUpRight, FileText, HardHat, Loader2, RefreshCw, ShieldCheck, Sparkles,
+  Star, Workflow,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -10,7 +11,9 @@ import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { ScoreDial } from "@/components/ScoreDial";
 import { Badge, Button, Card } from "@/components/ui/primitives";
 import { api, COMPANY_ID } from "@/lib/api";
+import { getActiveCompany, listSubcontractors } from "@/lib/data";
 import { fmtDate } from "@/lib/format";
+import { suggestSubs, type Subcontractor } from "@/lib/subcontractors";
 import type { OpportunityDetail } from "@/lib/types";
 
 export default function OpportunityPage() {
@@ -20,6 +23,7 @@ export default function OpportunityPage() {
   const [summary, setSummary] = useState<string>("");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [subs, setSubs] = useState<Subcontractor[]>([]);
 
   const load = () =>
     api.opportunity(COMPANY_ID, id).then(setData).catch((e) => setErr(String(e)));
@@ -27,6 +31,10 @@ export default function OpportunityPage() {
   useEffect(() => {
     load();
     api.summary(id).then((r) => setSummary(r.summary)).catch(() => {});
+    (async () => {
+      const c = await getActiveCompany();
+      if (c) setSubs(await listSubcontractors(c.id));
+    })();
   }, [id]);
 
   async function rescore() {
@@ -54,6 +62,7 @@ export default function OpportunityPage() {
   const o = data.opportunity;
   const s = data.score;
   const existing = data.workspaces[0];
+  const suggestedSubs = suggestSubs(subs, o.naics, o.set_aside);
 
   return (
     <>
@@ -137,6 +146,51 @@ export default function OpportunityPage() {
               </p>
             </Card>
           )}
+
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="flex items-center gap-2 font-display text-lg">
+                <HardHat size={16} className="text-brass" /> Suggested subcontractors
+              </h3>
+              <Link href="/subcontractors"
+                className="text-xs font-mono text-brass hover:text-ink">
+                View Rolodex →
+              </Link>
+            </div>
+            {suggestedSubs.length === 0 ? (
+              <p className="text-sm text-ink-faint">
+                No Rolodex matches for NAICS {o.naics || "—"} / set-aside {o.set_aside || "—"}.{" "}
+                <Link href="/subcontractors" className="text-brass underline">Add partners</Link> so they
+                surface here next time.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {suggestedSubs.map((sub) => (
+                  <li key={sub.id}
+                    className="flex items-start justify-between gap-3 p-3 border border-line rounded-sm hover:bg-paper">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm">{sub.name}</span>
+                        {sub.preferred && <Star size={12} className="text-brass fill-brass" />}
+                      </div>
+                      <div className="text-xs text-ink-faint mt-0.5">{sub.contactName}</div>
+                      <div className="text-xs text-ink-soft mt-1 line-clamp-1">
+                        {sub.capabilities.join(" · ")}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      {sub.certifications.slice(0, 2).map((c) => (
+                        <span key={c}
+                          className="text-[10px] font-mono px-1.5 py-0.5 border border-brass/40 text-brass bg-brass/5 rounded-sm uppercase tracking-wider">
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
 
           <Card className="p-6">
             <h3 className="font-display text-lg mb-3">Attachments</h3>

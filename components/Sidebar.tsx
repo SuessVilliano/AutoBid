@@ -1,8 +1,9 @@
 "use client";
 import clsx from "clsx";
 import {
-  Activity, BarChart3, Bot, Building2, ChevronDown, Coins, FileStack, Gauge, Inbox,
-  LayoutList, LogOut, Menu, Plus, PlusCircle, Settings, Vault, X,
+  Activity, BarChart3, Bot, Building2, ChevronDown, Coins, FileStack, Gauge,
+  HardHat, Inbox, LayoutList, LogOut, Menu, Plus, PlusCircle, Settings,
+  Vault, X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -22,6 +23,7 @@ const NAV = [
   { href: "/agents", label: "AI Agents", icon: Bot },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/health", label: "System Health", icon: Activity },
+  { href: "/subcontractors", label: "Subcontractors", icon: HardHat },
   { href: "/vault", label: "Company Vault", icon: Vault },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
