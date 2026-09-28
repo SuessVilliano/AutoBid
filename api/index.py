@@ -999,6 +999,13 @@ def _sam_to_item(o: Dict[str, Any]) -> Dict[str, Any]:
     if deadline and isinstance(deadline, str) and "T" in deadline:
         deadline = deadline.split("T")[0]
 
+    place = o.get("placeOfPerformance") or {}
+    if not isinstance(place, dict):
+        place = {}
+    state = place.get("stateCode") or place.get("state") or place.get("code")
+    if isinstance(state, dict):
+        state = state.get("code") or state.get("name")
+
     return {
         "id": o.get("noticeId") or o.get("id") or o.get("solicitationNumber"),
         "title": o.get("title") or o.get("subject") or "(no title)",
@@ -1007,6 +1014,7 @@ def _sam_to_item(o: Dict[str, Any]) -> Dict[str, Any]:
         "set_aside": setaside,
         "value": award_val,
         "response_deadline": deadline,
+        "place_of_perf_state": state,
         "url": o.get("uiLink") or o.get("link") or None,
         "type": o.get("type") or "Contract",
         "posted_date": o.get("postedDate"),
