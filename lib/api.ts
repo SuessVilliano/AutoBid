@@ -98,6 +98,7 @@ export const api = {
         value: number | null;
         response_deadline: string | null;
         url: string | null;
+        place_of_perf_state?: string | null;
         type: string;
         posted_date: string | null;
         description: string | null;

@@ -14,6 +14,9 @@ export type FeedItem = {
   total_score: number | null;
   recommended: boolean | null;
   rationale: string | null;
+  value?: number | null;
+  description?: string | null;
+  place_of_perf_state?: string | null;
 };
 
 export type Opportunity = {
