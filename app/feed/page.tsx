@@ -84,7 +84,7 @@ function FeedBody({ company }: { company: CompanyProfile }) {
         });
         setItems(mapped);
       } else {
-        const res = await api.feed(COMPANY_ID, min);
+        const res = await api.feed(COMPANY_ID, 0);
         setItems(res.items.map((o) => {
           const fit = qualifyOpportunity({
             title: o.title,
@@ -109,7 +109,7 @@ function FeedBody({ company }: { company: CompanyProfile }) {
     } finally {
       setLoading(false);
     }
-  }, [source, min, myCodes]);
+  }, [source, min, myCodes, company]);
 
   useEffect(() => { loadFeed(); }, [loadFeed]);
 
