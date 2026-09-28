@@ -116,6 +116,9 @@ export function qualifyOpportunity(
     completeSignals >= 4 ? "high" : completeSignals >= 2 ? "medium" : "low";
 
   const watchouts: string[] = [];
+  if (sameFour || sameTwo) {
+    watchouts.push(`Review NAICS ${oppCode}; this related code may reveal a lane to add if it accurately describes your principal work.`);
+  }
   if (!opportunity.naics) watchouts.push("Confirm the opportunity's NAICS in the official notice.");
   if (opportunity.set_aside) {
     const normalized = opportunity.set_aside.toLowerCase();
