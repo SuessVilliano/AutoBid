@@ -60,6 +60,7 @@ function FeedBody({ company }: { company: CompanyProfile }) {
             set_aside: o.set_aside,
             value: o.value,
             response_deadline: o.response_deadline,
+            place_of_perf_state: o.place_of_perf_state,
           }, company);
           const evidence = fit.factors
             .filter((factor) => factor.score > 0)
@@ -73,6 +74,9 @@ function FeedBody({ company }: { company: CompanyProfile }) {
             set_aside: o.set_aside ?? null,
             response_deadline: o.response_deadline ?? null,
             url: o.url ?? null,
+            value: o.value ?? null,
+            description: o.description ?? null,
+            place_of_perf_state: o.place_of_perf_state ?? null,
             total_score: fit.score,
             recommended: fit.posture === "pursue_review",
             rationale: [evidence, fit.watchouts[0]].filter(Boolean).join(" · "),
@@ -86,7 +90,10 @@ function FeedBody({ company }: { company: CompanyProfile }) {
             title: o.title,
             naics: o.naics,
             set_aside: o.set_aside,
+            value: o.value,
+            description: o.description,
             response_deadline: o.response_deadline,
+            place_of_perf_state: o.place_of_perf_state,
           }, company);
           return {
             ...o,
