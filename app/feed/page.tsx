@@ -9,6 +9,7 @@ import { SkeletonRow } from "@/components/Skeleton";
 import { Badge, Button } from "@/components/ui/primitives";
 import { api, COMPANY_ID } from "@/lib/api";
 import { enabledNaics, type CompanyProfile } from "@/lib/companyProfile";
+import { qualifyOpportunity } from "@/lib/qualificationEngine";
 import { daysLeft, fmtDate } from "@/lib/format";
 import { supabaseEnabled } from "@/lib/supabase/env";
 import type { FeedItem } from "@/lib/types";
@@ -51,21 +52,50 @@ function FeedBody({ company }: { company: CompanyProfile }) {
           limit: 50,
         });
         if (res.error) setSamError(res.error);
-        const mapped: FeedItem[] = res.items.map((o) => ({
-          id: String(o.id),
-          title: o.title,
-          naics: o.naics ?? null,
-          set_aside: o.set_aside ?? null,
-          response_deadline: o.response_deadline ?? null,
-          url: o.url ?? null,
-          total_score: scoreOpp(o, myCodes),
-          recommended: !!(o.naics && myCodes.includes(o.naics)),
-          rationale: o.description?.slice(0, 160) ?? null,
-        }));
+        const mapped: FeedItem[] = res.items.map((o) => {
+          const fit = qualifyOpportunity({
+            title: o.title,
+            description: o.description,
+            naics: o.naics,
+            set_aside: o.set_aside,
+            value: o.value,
+            response_deadline: o.response_deadline,
+          }, company);
+          const evidence = fit.factors
+            .filter((factor) => factor.score > 0)
+            .slice(0, 3)
+            .map((factor) => `${factor.label} ${factor.score}/${factor.outOf}`)
+            .join(" · ");
+          return {
+            id: String(o.id),
+            title: o.title,
+            naics: o.naics ?? null,
+            set_aside: o.set_aside ?? null,
+            response_deadline: o.response_deadline ?? null,
+            url: o.url ?? null,
+            total_score: fit.score,
+            recommended: fit.posture === "pursue_review",
+            rationale: [evidence, fit.watchouts[0]].filter(Boolean).join(" · "),
+          };
+        });
         setItems(mapped);
       } else {
         const res = await api.feed(COMPANY_ID, min);
-        setItems(res.items);
+        setItems(res.items.map((o) => {
+          const fit = qualifyOpportunity({
+            title: o.title,
+            naics: o.naics,
+            set_aside: o.set_aside,
+            response_deadline: o.response_deadline,
+          }, company);
+          return {
+            ...o,
+            total_score: fit.score,
+            recommended: fit.posture === "pursue_review",
+            rationale: fit.watchouts[0] ?? fit.factors.filter((factor) => factor.score > 0)
+              .slice(0, 3).map((factor) => `${factor.label} ${factor.score}/${factor.outOf}`).join(" · "),
+          };
+        }));
       }
     } catch (e) {
       setErr(String(e));
@@ -78,8 +108,8 @@ function FeedBody({ company }: { company: CompanyProfile }) {
 
   const filtered = useMemo(() => {
     let next = items;
-    if (matchProfile && myCodes.length > 0) {
-      next = next.filter((o) => o.naics && myCodes.includes(o.naics));
+    if (matchProfile) {
+      next = next.filter((o) => (o.total_score ?? 0) >= 45);
     }
     if (min > 0) next = next.filter((o) => (o.total_score ?? 0) >= min);
     return next;
@@ -124,7 +154,7 @@ function FeedBody({ company }: { company: CompanyProfile }) {
               className="accent-ink"
             />
             <Target size={13} className="text-brass" />
-            Match my profile ({myCodes.length} NAICS)
+            Profile fit (45+ · {myCodes.length} NAICS)
           </label>
 
           {matchProfile && hiddenCount > 0 && (
@@ -182,7 +212,7 @@ function FeedBody({ company }: { company: CompanyProfile }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     {o.recommended && (
-                      <Badge tone="good"><ShieldCheck size={11} /> Recommended</Badge>)}
+                      <Badge tone="good"><ShieldCheck size={11} /> Strong fit · verify eligibility</Badge>)}
                     {o.naics && (
                       <Badge tone={matches ? "brass" : "ink"}>
                         {o.naics}{matches && " ✓"}
@@ -229,11 +259,3 @@ function FeedBody({ company }: { company: CompanyProfile }) {
   );
 }
 
-function scoreOpp(o: { naics: string | null; set_aside: string | null; value: number | null },
-                  myCodes: string[]): number {
-  let score = 40;
-  if (o.naics && myCodes.includes(o.naics)) score += 35;
-  if (o.set_aside) score += 10;
-  if (o.value && o.value >= 100000) score += 10;
-  return Math.min(score, 95);
-}
